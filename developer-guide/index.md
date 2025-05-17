@@ -80,6 +80,11 @@ Change `node.network` flag to different one.
     go run cmd/node/member/main.go --node.network myownnetwork
 ```
 
+### How to update node frontend
+Frontend dist is embedded in the binary using Golang `embed` library. You can find `dist` directory in the vendored files.
+```bash 
+    go get github.com/Warp-net/warpnet-frontend && go mod vendor
+```
 
 ---
 
