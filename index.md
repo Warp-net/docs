@@ -26,6 +26,7 @@ This documentation is divided into the following sections:
 
 - [Architecture](architecture.md) — Core components, how nodes interact, message flow
 - [Protocol](protocol.md) — Message formats, discovery, broadcasting
+- [Consensus](consensus.md) — Message formats, discovery, broadcasting
 
 ### Security & Storage
 
