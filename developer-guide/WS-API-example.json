@@ -1,0 +1,288 @@
+[
+  {
+  "path": "string, example: /private/post/login",
+  "node_id": "None",
+  "body": {
+    "username": "string",
+    "password": "string"
+  }
+}, {
+  "path": "string, example: /private/post/logout",
+  "node_id": "string",
+  "body": {}
+},{
+    "path": "string, check variable PUBLIC_GET_USER",
+    "node_id": "string",
+    "timestamp":"string",
+    "body": {
+      "user_id": "string"
+    }
+  },{
+  "path": "string, check variable PRIVATE_POST_UPLOAD_IMAGE",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "file": "string"
+  }
+},
+  {
+  "path": "string, check variable PUBLIC_GET_IMAGE",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "key": "string"
+  }
+}, 
+  {
+  "path": "string, check variable PRIVATE_GET_STATS",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {}
+},
+ {
+  "path": "string, check variable PRIVATE_POST_RESET",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {}
+},{
+  "path": "string, check variable PUBLIC_GET_USERS",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "limit": "string",
+    "cursor": "string",
+    "user_id": "string"
+  }
+},{
+  "path": "string, check variable PRIVATE_GET_TIMELINE",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "limit": "string",
+    "cursor": "string",
+    "user_id": "string"
+  }
+},{
+  "path": "string, check variable PRIVATE_POST_TWEET",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "username": "string",
+    "text": "string",
+    "image_key": "string",
+    "created_at": "string"
+  }
+},{
+  "path": "string, check variable PRIVATE_DELETE_TWEET",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "tweet_id": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_GET_TWEET",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "tweet_id": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_GET_TWEET_STATS",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "tweet_id": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_GET_TWEETS",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "limit": "string",
+    "cursor": "string",
+    "user_id": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_POST_FOLLOW",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "followee": "string",
+    "follower": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_POST_UNFOLLOW",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "followee": "string",
+    "follower": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_GET_FOLLOWERS",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "cursor": "string",
+    "limit": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_GET_FOLLOWEES",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "cursor": "string",
+    "limit": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_POST_LIKE",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "tweet_id": "string",
+    "owner_id": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_POST_UNLIKE",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "tweet_id": "string",
+    "owner_id": "string"
+  }
+},{
+  "path": "string, check variable PRIVATE_POST_USER",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "bio": "string",
+    "avatar": "string",
+    "avatar_key": "string",
+    "username": "string",
+    "background_image": "string",
+    "background_image_key": "string",
+    "website": "string",
+    "birthdate": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_POST_REPLY",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "root_id": "string",
+    "parent_id": "string",
+    "user_id": "string",
+    "username": "string",
+    "parent_user_id": "string",
+    "text": "string",
+    "created_at": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_GET_REPLY",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "root_id": "string",
+    "reply_id": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_DELETE_REPLY",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "root_id": "string",
+    "reply_id": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_GET_REPLIES",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "root_id": "string",
+    "parent_id": "string",
+    "limit": "string",
+    "cursor": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_POST_RETWEET",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "id": "string",
+    "user_id": "string",
+    "username": "string",
+    "text":"string",
+    "retweeted_by": "string",
+    "created_at": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_POST_UNRETWEET",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "retweeter_id": "string",
+    "tweet_id": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_POST_CHAT",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "owner_id": "string",
+    "other_user_id": "string"
+  }
+},{
+  "path": "string, check variable PRIVATE_GET_CHAT",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "chat_id": "string"
+  }
+},{
+  "path": "string, check variable PRIVATE_GET_CHATS",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "user_id": "string",
+    "limit": "string",
+    "cursor": "string"
+  }
+},{
+  "path": "string, check variable PRIVATE_DELETE_CHAT",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "chat_id": "string"
+  }
+},{
+  "path": "string, check variable PRIVATE_GET_MESSAGES",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "owner_id": "string",
+    "chat_id": "string",
+    "limit": "string",
+    "cursor": "string"
+  }
+},{
+  "path": "string, check variable PUBLIC_POST_MESSAGE",
+  "node_id": "string",
+  "timestamp": "string",
+  "body": {
+    "sender_id": "string",
+    "receiver_id": "string",
+    "chat_id": "string",
+    "text":"string"
+  }
+}
+]

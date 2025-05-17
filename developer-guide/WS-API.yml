@@ -1,0 +1,139 @@
+# Warpnet - Decentralized Social Network
+#Copyright (C) 2025 Vadim Filin, https://github.com/Warp-net,
+#<github.com.mecdy@passmail.net>
+#
+#This program is free software: you can redistribute it and/or modify
+#it under the terms of the GNU General Public License as published by
+#the Free Software Foundation, either version 3 of the License, or
+#(at your option) any later version.
+#
+#This program is distributed in the hope that it will be useful,
+#but WITHOUT ANY WARRANTY; without even the implied warranty of
+#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#GNU General Public License for more details.
+#
+#You should have received a copy of the GNU General Public License
+#along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+#WarpNet is provided “as is” without warranty of any kind, either expressed or implied.
+#Use at your own risk. The maintainers shall not be liable for any damages or data loss
+#resulting from the use or misuse of this software.
+
+openapi: 3.0.0
+info:
+  title: Warpnet
+  version: 0.0.0
+  description: External API for a distributed Twitter-like application
+servers:
+  - url: http://localhost:4002
+    description: Interface address
+
+paths:
+  /:
+    get:
+      description: HTTP endpoint
+      summary: Serve static files
+      operationId: GetIndex
+      responses:
+        '200':
+          description: OK
+
+  /{file*}:
+    get:
+      summary: Serve static files
+      operationId: GetStaticFile
+      description: HTTP endpoint. Returns any static file from the /static/ directory
+      parameters:
+        - in: path
+          name: file
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Static file served successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: File not found
+
+  /v1/api/ws:
+    get:
+      summary: Serve Websocket connection
+      description: HTTP to WS endpoint
+      operationId: WebsocketUpgrade
+      responses:
+        '101':
+          description: Upgraded
+        '500':
+          description: Internal server error
+
+components:
+  schemas:
+    Message:
+      type: object
+      properties:
+        body:
+          type: object
+          description: check 'developer-guide/WS-API-example.json'
+        node_id:
+          type: string
+          example: 12D3KooWMKZFrp1BDKg9amtkv5zWnLhuUXN32nhqMvbtMdV2hz7j
+        timestamp:
+          type: string
+          description: RFC3339
+        path:
+          type: string
+          example: |
+            "/public/post/admin/verifynode/0.0.0"
+            "/private/post/admin/pair/0.0.0"
+            "/private/get/admin/stats/0.0.0"
+            "/private/delete/chat/0.0.0"
+            "/private/delete/message/0.0.0"
+            "/private/delete/tweet/0.0.0"
+            "/private/get/chat/0.0.0"
+            "/private/get/chats/0.0.0"
+            "/private/get/message/0.0.0"
+            "/private/get/messages/0.0.0"
+            "/private/get/timeline/0.0.0"
+            "/private/post/login/0.0.0"
+            "/private/post/logout/0.0.0"
+            "/private/post/tweet/0.0.0"
+            "/private/post/user/0.0.0"
+            "/public/delete/reply/0.0.0"
+            "/public/get/followees/0.0.0"
+            "/public/get/followers/0.0.0"
+            "/public/get/info/0.0.0"
+            "/private/post/reset/0.0.0"
+            "/public/get/replies/0.0.0"
+            "/public/get/reply/0.0.0"
+            "/public/get/tweet/0.0.0"
+            "/public/get/tweetstats/0.0.0"
+            "/public/get/tweets/0.0.0"
+            "/public/get/user/0.0.0"
+            "/public/get/users/0.0.0"
+            "/public/post/chat/0.0.0"
+            "/public/post/follow/0.0.0"
+            "/public/post/like/0.0.0"
+            "/public/post/message/0.0.0"
+            "/public/post/reply/0.0.0"
+            "/public/post/retweet/0.0.0"
+            "/public/post/unfollow/0.0.0"
+            "/public/post/unlike/0.0.0"
+            "/public/post/unretweet/0.0.0"
+            "/private/post/image/0.0.0"
+            "/public/get/image/0.0.0"
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+      required:
+        - code
+        - message
