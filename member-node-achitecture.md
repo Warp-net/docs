@@ -5,6 +5,8 @@ that handle message intake, routing, storage, and optional propagation to the ne
 The architecture is designed to **separate responsibilities**, ensure **local privacy boundaries**, 
 and support **modular extension**.
 
+![member-node.png](assets/member-node.png)
+
 ---
 
 #### Message Lifecycle (User → Network)
