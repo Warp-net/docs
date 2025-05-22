@@ -6,4 +6,4 @@
 
 ## How to help
 
-[Answer](HOW-TO-HELP.md)
+[Answer is here](HOW-TO-HELP.md)

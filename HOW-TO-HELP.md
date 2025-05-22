@@ -31,7 +31,7 @@ Look at [good first issues](https://github.com/warp-net/warpnet/labels/good%20fi
 
 * Write a desktop client or cross-platform GUI
 * Make a mobile aliases (iOS and Android)
-* Create visualizations or dashboards for peers/network metrics
+* Create visualizations or dashboards for peers/network metrics (like Graphana)
 
 WarpNet is modular. Anything that speaks the protocol can join the network.
 
@@ -40,7 +40,7 @@ WarpNet is modular. Anything that speaks the protocol can join the network.
 ## 4. **Research and Audit**
 
 * Review the cryptographic primitives (Noise, PSK, local key derivation)
-* Propose improvements to moderation, discovery, or reputation models
+* Propose improvements to moderation, discovery, or security models
 * Help design trust-minimizing coordination methods
 
 ---
@@ -56,7 +56,6 @@ WarpNet is modular. Anything that speaks the protocol can join the network.
 ## 6. **Run Infrastructure**
 
 * Host a publicly reachable bootstrap node (PLEASE, PLEASE, PLEASE)
-* Mirror binaries or snapshots
 * Help with continuous integration or builds
 
 ---
