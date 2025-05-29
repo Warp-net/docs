@@ -56,6 +56,31 @@ This ensures that `@12345678` means the same person across the network, without 
 
 ---
 
+### 4. Node's Codebase Integrity Validation
+
+WarpNet includes **codebase integrity validation** using a consensus-based FSM (Finite State Machine) 
+mechanism built on **Hashicorp Raft**. This ensures that only nodes with approved and previously 
+registered code versions (identified by their code hash) are accepted into the cluster.
+
+#### Motivation
+
+To increase trust and stability in the network, WarpNet nodes now verify that consensus has approved a 
+joining peer's codebase hash.
+This prevents unauthorized or modified nodes from participating 
+without explicit approval.
+
+#### How It Works
+
+* Own node code hashes (e.g., SHA256 of the node’s source tree) must be previously registered and stored 
+  in the system under a known consensus key.
+* When a node attempts to join, its hash is passed through the **FSM-based validation layer**, 
+  which is driven by Raft.
+* FSM validators are executed for every `LogCommand` entry applied to the consensus log. Such 
+  validator nsures the node's hash is already stored in the BadgerDB. 
+  If the hash isn't found or is malformed, the log application is rejected and consensus finishes with error.
+
+---
+
 ## Architecture
 
 * Raft runs on each node.
@@ -68,7 +93,7 @@ This ensures that `@12345678` means the same person across the network, without 
 
 ## Limitations
 
-* Consensus is not used for ordering tweets, messages, or reactions.
+* Consensus is not used for storing application data (i.e. tweets, messages, or reactions).
 * There is no distributed ledger or replicated database.
 * If the consensus cluster is unreachable or degraded, new user ID registrations may fail, 
   but local operation continues.

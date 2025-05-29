@@ -144,7 +144,7 @@ How it works:
 4. Verification:
     - The requesting node compares the received hash with its own.
     - It then verifies the signature using the peer's public key from the peerstore.
-    - If either fails, the peer is considered untrusted and may be temporarily blocklisted.
+    - If either fails, the peer is considered untrusted and may be temporarily blocklisted (exponentially).
 
 ---
 
