@@ -57,7 +57,7 @@ This documentation is divided into the following sections:
 - [Privacy Policy](legal/PRIVACY-POLICY.md)
 - [Terms & Conditions](legal/T&C.md)
 - [Contributor License Agreement (CLA)](legal/CLA.md)
-- [License](legal/LICENSE)
+- [License](legal/LICENSE.md)
 
 ---
 
