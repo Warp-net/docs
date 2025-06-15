@@ -1,0 +1,6 @@
+title: WarpNet Docs
+description: Documentation for WarpNet project
+theme: minima
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
