@@ -1,5 +1,3 @@
-# WarpNet Documentation
-
 Welcome to the official documentation for **WarpNet**, a fully decentralized peer-to-peer social network designed for privacy, autonomy, and resilience.
 
 WarpNet does not rely on centralized servers. All user data is stored locally, and communication happens directly between peers using cryptographic protocols. This documentation provides everything you need to understand, use, contribute to, and deploy WarpNet.
