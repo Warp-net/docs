@@ -26,12 +26,18 @@ This documentation is divided into the following sections:
 
 - [Architecture](architecture.md) — Core components, how nodes interact, message flow
 - [Protocol](protocol.md) — Message formats, discovery, broadcasting
-- [Consensus](consensus/raft-tree.md) — Message formats, discovery, broadcasting
+- Consensus — Reaching agreed state between nodes by:
+  - [Raft](consensus/raft-tree.md) - Raft consensus protocol
+  - [Gossip](consensus/gossip.md) - Gossip-based consensus protocol
 
 ### Security & Storage
 
 - [Security](security.md) — Codebase integrity, rate limiting, encrypted streams and metadata
 - [Storage](storage.md) — How data is stored with BadgerDB, export and recovery
+
+### Integration
+
+- [mastodon.md](mastodon.md) - Read-only integration with Mastodon semi-centralized social network
 
 ### Participation
 
