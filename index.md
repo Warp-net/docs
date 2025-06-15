@@ -65,7 +65,9 @@ This documentation is divided into the following sections:
 - [Contributor License Agreement (CLA)](legal/CLA.md)
 - [License](legal/LICENSE.md)
 
----
+## How To Help 
+
+- [How To Help](HOW-TO-HELP.md)
 
 ## Community & Support
 
