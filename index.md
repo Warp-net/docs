@@ -37,7 +37,7 @@ This documentation is divided into the following sections:
 
 ### Integration
 
-- [mastodon.md](mastodon.md) - Read-only integration with Mastodon semi-centralized social network
+- [Mastodon](mastodon.md) - Read-only integration with Mastodon semi-centralized social network
 
 ### Participation
 
