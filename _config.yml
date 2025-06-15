@@ -1,7 +1,7 @@
 title: WarpNet Docs
 description: Documentation for WarpNet project
 theme: minima
-repository: Warp-net/Warp-net.github.io
+repository: Warp-net/docs
 organization: Warp-net
 github: [metadata]
 plugins:
