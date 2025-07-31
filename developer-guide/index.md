@@ -57,27 +57,22 @@ The above parameters also could be set as environment variables:
     ...
     (etc.)
 ```
+## 3. HOW TO RUN LOCALLY IN ISOLATED NETWORK
 
-### How to run single node (dev mode)
+### How to run single node (dev mode, isolated network)
 - bootstrap node
 ```bash 
-    go run cmd/node/bootstrap/main.go
+    go run cmd/node/bootstrap/main.go --node.network myownnetwork
 ```
 - member node
 ```bash 
-    go run cmd/node/member/main.go
+    go run cmd/node/member/main.go --node.network myownnetwork
 ```
 
-### How to run multiple nodes (dev mode)
+### How to run multiple nodes (dev mode, isolated network)
 Change database directory name and ports. Run every node as an independent OS process.
 ```bash 
-    go run cmd/node/member/main.go --database.dir storage2 --node.port 4021 --server.port 4022
-```
-
-### How to run node in isolated network (dev mode)
-Change `node.network` flag to different one.
-```bash 
-    go run cmd/node/member/main.go --node.network myownnetwork
+    go run cmd/node/member/main.go --database.dir storage2 --node.port 4021 --server.port 4022 --node.network myownnetwork
 ```
 
 ### How to update node frontend
@@ -88,7 +83,7 @@ Frontend dist is embedded in the binary using Golang `embed` library. You can fi
 
 ---
 
-## 3. Development Tips
+## 4. Development Tips
 
 * To enable debug logging, use environment variable:
   `LOGGING_LEVEL=debug ./warpnet`
@@ -100,7 +95,7 @@ Frontend dist is embedded in the binary using Golang `embed` library. You can fi
 
 ---
 
-## 4. Issues and Pull Requests
+## 5. Issues and Pull Requests
 
 If you’ve found a bug or want to implement a feature:
 
@@ -113,12 +108,12 @@ All code must be tested and documented.
 
 ---
 
-## 5. Contributor Scope
+## 6. Contributor Scope
 
 Here are areas where contributions are welcome:
 
 * Security protocols improvement
-* Improved NAT traversal, NAT hole punching and related.
+* Improved NAT traversal, NAT hole punching, and related.
 * UI integrations or mobile clients
 * Protocol improvements (compression, versioning)
 * Documentation and developer tooling
@@ -126,7 +121,7 @@ Here are areas where contributions are welcome:
 
 ---
 
-## 6. Contact and Discussion
+## 7. Contact and Discussion
 
 Join us on:
 
