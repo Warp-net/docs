@@ -148,26 +148,7 @@ How it works:
 
 ---
 
-## 5. Frontend-to-Backend Encryption via ECDH
-
-To secure local UI interaction (e.g. browser frontend ↔ local node backend), WarpNet establishes a secure 
-session using Elliptic Curve Diffie-Hellman (ECDH):
-
-### Handshake Flow
-
-1. Frontend generates ephemeral ECDH keypair using WebCrypto
-2. Sends public key to backend via WebSocket
-3. Backend replies with its own ephemeral key
-4. Both derive the same symmetric session key via `ECDH(PubA, PrivB)`
-5. All further communication is encrypted using this shared key
-
-This protects against:
-
-* Local man-in-the-middle (e.g. rogue browser extensions)
-* Session hijacking on local ports
-* Frontend/backend desynchronization
-
-Session keys are valid per browser session only and not persisted.
+## 5. Deprecated
 
 ---
 
@@ -188,7 +169,6 @@ These are enforced automatically by the libp2p host stack and can be customized 
 ## Related Docs
 
 - [Noise Protocol Framework Specification](http://www.noiseprotocol.org/)
-- [Elliptic Curve Diffie-Hellman Wikipedia](https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%80%93Hellman)
 - [Challenge–response authentication](https://en.wikipedia.org/wiki/Challenge%E2%80%93response_authentication)
 
 ---

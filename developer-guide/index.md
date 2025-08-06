@@ -16,7 +16,7 @@ cd warpnet
 
 ## 2. Building from Source
 
-WarpNet is written in Go. To build it, you’ll need Go 1.24+ installed.
+WarpNet is written in Go. To build it, you’ll need Go 1.24+ and Wails v2.10.2 installed.
 
 ```bash
 # bootstrap node
@@ -25,13 +25,19 @@ go build -ldflags "-s -w" -gcflags=all=-l -mod=vendor -v -o warpnet cmd/node/boo
 
 ```bash
 # member node
-go build -ldflags "-s -w" -gcflags=all=-l -mod=vendor -v -o warpnet cmd/node/member/main.go
+cd cmd/node/member && CGO_ENABLED=1 wails build -devtools -tags webkit2_41
 ```
 
 You can now run the binary:
 
 ```bash
+# bootstrap node
 ./warpnet -h
+```
+
+```bash
+# member node
+./build/bin/warpnet -h
 ```
 Full list of available flags:
 
@@ -62,17 +68,19 @@ The above parameters also could be set as environment variables:
 ### How to run single node (dev mode, isolated network)
 - bootstrap node
 ```bash 
-    go run cmd/node/bootstrap/main.go --node.network myownnetwork
+    ./warpnet --node.network myownnetwork
 ```
 - member node
 ```bash 
-    go run cmd/node/member/main.go --node.network myownnetwork
+    # wails prebuilt binary for member node
+    ./build/bin/warpnet --node.network myownnetwork
 ```
 
 ### How to run multiple nodes (dev mode, isolated network)
 Change database directory name and ports. Run every node as an independent OS process.
 ```bash 
-    go run cmd/node/member/main.go --database.dir storage2 --node.port 4021 --server.port 4022 --node.network myownnetwork
+    # bootstrap node example
+    ./warpnet --database.dir storage2 --node.port 4021 --server.port 4022 --node.network myownnetwork
 ```
 
 ### How to update node frontend
@@ -90,7 +98,7 @@ Frontend dist is embedded in the binary using Golang `embed` library. You can fi
 * WarpNet is modular: each subsystem (auth, chat, discovery, consensus) lives in its own package under `/core/`
 * WarpNet is modular: API handlers live in its own package under `/core/handlers` and `/core/middleware`
 * Check Makefile for handy commands
-* Use Docker to run local member and bootstrap nodes
+* Use Docker to run local bootstrap nodes. It's impossible to run a member node in Docker.
 * TURN OFF VPN!
 
 ---

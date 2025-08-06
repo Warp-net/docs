@@ -17,32 +17,17 @@ Here is the message flow through the internal architecture of a member node:
 
 #### 1. **Frontend Input**
 
-* The user composes a message in the **frontend** (e.g., web UI).
-* Once submitted, the message is **encrypted** using a session key established via ECDH (Diffie-Hellman) with the node.
-* The encrypted payload is sent to the node's **WebSocket API endpoint**.
+* "Frontend" is implemented as a Site Specific Browser (SSB) app.
+* A site-specific browser (SSB) is a software application dedicated to accessing pages 
+  from a single source (site) on a computer network such as the Internet or a private intranet. 
+  SSBs typically simplify the more complex functions of a web browser by excluding the menus, 
+  toolbars and browser graphical user interface associated with functions that are external to 
+  the workings of a single site.
 
 ---
 
-#### 2. **WebSocket Server**
+#### 2 and 3 are deprecated
 
-* The **WS server** terminates the client session and receives the encrypted message.
-* It performs **session-level authentication** using the established ECDH-derived symmetric key.
-* Once decrypted and validated, the message is passed to the **internal message router**.
-
----
-
-#### 3. **Client-Side Node Component**
-
-* The **client node** is a logical component inside the full member node.
-* It is responsible for **routing** the incoming message:
-
-    * Validates message structure and schema.
-    * Tags the message with a **local sequence number**.
-    * Dispatches the message to the appropriate **protocol handler** (e.g., `timeline`, `chat`, etc.).
-
-The client node does not persist the message permanently, and it doesn't have access to Warpnet itself.
-
----
 
 #### 4. **Main Node Component**
 
@@ -67,10 +52,8 @@ The client node does not persist the message permanently, and it doesn't have ac
 ### Internal Component Summary
 
 | Component         | Responsibility                                                 |
-| ----------------- | -------------------------------------------------------------- |
-| **Frontend**      | Captures and encrypts user input (runs in browser)             |
-| **WS Server**     | Accepts encrypted payloads and performs session authentication |
-| **Client Node**   | Routes and tags messages, selects appropriate protocol path    |
+| ----------------- |----------------------------------------------------------------|
+| **Frontend**      | Site Specific Browser (SSB) app                                |
 | **Main Node**     | Stores messages, propagates to network, applies moderation     |
 | **Storage Layer** | Writes all persisted data using BadgerDB with ordered keys     |
 
@@ -80,24 +63,3 @@ The client node does not persist the message permanently, and it doesn't have ac
 > remains decoupled from long-term storage and peer interaction.
 
 ---
-
-### Sequence diagram
-
-```
-User        Frontend       WS Server     Client Node     Main Node     Other Peers
- |              |               |              |              |             |
- |  type msg    |               |              |              |             |
- |─────────────>|               |              |              |             |
- |              | encrypt msg   |              |              |             |
- |              |──────────────>|              |              |             |
- |              |               | decrypt &    |              |             |
- |              |               | auth session |              |             |
- |              |               |─────────────>|              |             |
- |              |               |              | route msg    |             |
- |              |               |              |─────────────>|             |
- |              |               |              |              | persist     |
- |              |               |              |              | & tag msg   |
- |              |               |              |              |────────────>|
- |              |               |              |              | optional     |
- |              |               |              |              | share       |
-```

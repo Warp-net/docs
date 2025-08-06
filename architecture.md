@@ -100,7 +100,9 @@ Storage is strictly local. No data is replicated unless the user configures back
 
 ### 5. **Moderation**
 
-TODO
+Warpnet filters and moderates content on a per-node basis.
+It is fully supported by LLM moderator node using
+IPFS and Llama 7b chat AI model.
 
 ---
 
@@ -192,7 +194,7 @@ There is no centralized coordination or conflict resolution mechanism.
 2. Post is timestamped and post ID generated
 3. Node broadcasts the post to connected peers (only followers)
 4. Posts propagate transitively through the network
-5. Moderation filters apply on receipt or rendering (TODO)
+5. Moderation filters apply on receipt or rendering 
 
 ---
 

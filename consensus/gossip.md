@@ -1,4 +1,4 @@
-# Gossip-Based Consensus
+# Gossip-Based Consensus (Not implemented, TODO)
 
 The WarpNet supports a **lightweight, peer-to-peer gossip-based consensus** protocol for decentralized 
 validation tasks.

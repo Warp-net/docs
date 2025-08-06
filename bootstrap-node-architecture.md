@@ -28,9 +28,7 @@ The core bootstrap node, initialized with:
 * Relay service (so NATed nodes can connect)
 * Full resource manager and connection limits
 
-**2. Raft Consensus**
-Used to manage dynamic peer state and allow coordinated control between bootstrap nodes 
-(e.g., voting, quorum-based decisions). 
+**2. Deprecated**
 
 **3. DiscoveryService**
 Handles:
@@ -84,49 +82,8 @@ Bootstrap nodes do not respond to or emit user-level content streams (e.g., time
 
 ---
 
-## Consensus Role
-
-Bootstrap nodes are the **only nodes authorized to participate in consensus** via the Raft protocol. 
-They maintain a coordinated control plane over shared network state such as trusted peer registries or 
-routing metadata.
-
-### Consensus Topology Rules:
-
-* **All Warpnet nodes may be part of the Raft voter set**
-* **Only **public** bootstrap nodes may serve as Raft leader**
-* **Only bootstrap nodes may initialize the consensus state (first cluster boot)**
-
-### Leader Responsibilities:
-
-* The **Raft leader** is responsible for managing the cluster configuration
-* New bootstrap nodes are discovered via the **DiscoveryService**
-* When a new candidate node is identified, the leader may call:
-
-```go
-raft.AddVoter(nodeID, address)
-```
-
-* This ensures that joining nodes are known, reachable, and authenticated via PSK
-
-### Dynamic Membership:
-
-* The leader uses the discovery mechanism to detect and evaluate candidates
-* If a node misbehaves or becomes unreachable, the leader can remove it via:
-
-```go
-raft.RemoveVoter(nodeID)
-```
-
-This allows flexible and semi-automated control over the consensus set without requiring manual 
-configuration on all nodes.
-
-> All consensus membership changes are persisted in Raft log and replicated to all voters.
-
----
-
 ## Related Docs
 
-- [Raft Protocol Specification](https://raft.github.io/raft.pdf)
 - [Bootstrapping node Wiki](https://en.wikipedia.org/wiki/Bootstrapping_node)
 
 ---
