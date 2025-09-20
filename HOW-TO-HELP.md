@@ -29,7 +29,6 @@ Look at [good first issues](https://github.com/warp-net/warpnet/labels/good%20fi
 
 ## 3. **Build Tools and Interfaces**
 
-* Write a desktop client or cross-platform GUI
 * Make a mobile aliases (iOS and Android)
 * Create visualizations or dashboards for peers/network metrics (like Graphana)
 
