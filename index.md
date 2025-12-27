@@ -25,8 +25,7 @@ This documentation is divided into the following sections:
 - [Architecture](architecture.md) — Core components, how nodes interact, message flow
 - [Protocol](protocol.md) — Message formats, discovery, broadcasting
 - Consensus — Reaching agreed state between nodes by:
-  - [Raft](consensus/raft-tree.md) - Raft consensus protocol
-  - [Gossip](consensus/gossip.md) - Gossip-based consensus protocol
+  - [CRDT](CRDT.md) - CRDT Gossip consensus
 
 ### Security & Storage
 
