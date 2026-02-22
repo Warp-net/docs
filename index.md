@@ -10,7 +10,7 @@ WarpNet is an experimental social protocol that:
 
 - Stores all content **locally on your device**
 - Enables **serverless communication** using peer-to-peer networking 
-- Uses Diffie–Hellman cryptographic algorithm and Noise protocol to ensure security
+- Uses Noise protocol to ensure security
 - Provides tools for **self-moderation**, **content control**, and **user autonomy** (TODO)
 - Encourages an ecosystem of independently operated nodes
 
