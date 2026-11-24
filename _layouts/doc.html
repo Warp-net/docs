@@ -1,0 +1,48 @@
+---
+layout: default
+---
+{%- include lang.html -%}
+{%- assign flat = "" | split: "" -%}
+{%- for section in site.data.navigation -%}
+  {%- for item in section.items -%}
+    {%- assign flat = flat | push: item -%}
+  {%- endfor -%}
+{%- endfor -%}
+{%- assign prev = nil -%}
+{%- assign next = nil -%}
+{%- for item in flat -%}
+  {%- assign item_url = prefix | append: item.url -%}
+  {%- if item_url == page.url -%}
+    {%- assign i_prev = forloop.index0 | minus: 1 -%}
+    {%- assign i_next = forloop.index0 | plus: 1 -%}
+    {%- if i_prev >= 0 -%}{%- assign prev = flat[i_prev] -%}{%- endif -%}
+    {%- assign next = flat[i_next] -%}
+  {%- endif -%}
+{%- endfor -%}
+<div class="doc-layout">
+  <aside class="doc-layout__sidebar">
+    {% include sidebar.html %}
+  </aside>
+
+  <article class="doc-content">
+    {{ content }}
+
+    {%- if prev or next %}
+    <nav class="pager" aria-label="{{ t.previous }} / {{ t.next }}">
+      {%- if prev %}{% assign prev_url = prefix | append: prev.url %}{% if lang == "ru" %}{% assign prev_title = prev.title_ru %}{% else %}{% assign prev_title = prev.title %}{% endif %}<a class="pager__prev" href="{{ prev_url | relative_url }}"><span>{{ t.previous }}</span>{{ prev_title }}</a>{% else %}<span></span>{% endif %}
+      {%- if next %}{% assign next_url = prefix | append: next.url %}{% if lang == "ru" %}{% assign next_title = next.title_ru %}{% else %}{% assign next_title = next.title %}{% endif %}<a class="pager__next" href="{{ next_url | relative_url }}"><span>{{ t.next }}</span>{{ next_title }}</a>{% endif %}
+    </nav>
+    {%- endif %}
+
+    <p class="doc-edit">
+      <a href="https://github.com/{{ site.repository }}/edit/{{ site.docs_branch }}/{{ page.path }}">{{ t.edit }}</a>
+    </p>
+  </article>
+
+  <aside class="doc-layout__toc" aria-label="{{ t.toc }}">
+    <div class="toc" hidden>
+      <p class="toc__title">{{ t.toc }}</p>
+      <ul class="toc__list"></ul>
+    </div>
+  </aside>
+</div>

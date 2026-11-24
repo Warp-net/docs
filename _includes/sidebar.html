@@ -1,0 +1,26 @@
+{%- include lang.html -%}
+{%- assign home_url = prefix | append: "/" -%}
+<nav class="sidebar" aria-label="{{ t.brand }}">
+  <div class="sidebar__top sidebar__top--mobile">
+    <a class="sidebar__brand" href="{{ home_url | relative_url }}"><img src="{{ site.logo }}" alt="" width="40" height="40"><span>{{ t.brand }}</span></a>
+    {% include lang-switch.html %}
+  </div>
+  <button class="sidebar__toggle" type="button" aria-expanded="false" aria-controls="sidebar-list">{{ t.menu }}</button>
+  <div class="sidebar__list" id="sidebar-list">
+    <div class="sidebar__top">
+      <a class="sidebar__brand" href="{{ home_url | relative_url }}"><img src="{{ site.logo }}" alt="" width="40" height="40"><span>{{ t.brand }}</span></a>
+    </div>
+    <div class="sidebar__lang">{% include lang-switch.html %}</div>
+    {%- for section in site.data.navigation %}
+    <div class="sidebar__section">
+      <p class="sidebar__heading">{% if lang == "ru" %}{{ section.title_ru }}{% else %}{{ section.title }}{% endif %}</p>
+      <ul>
+        {%- for item in section.items %}
+        {%- assign item_url = prefix | append: item.url %}
+        <li><a href="{{ item_url | relative_url }}"{% if page.url == item_url %} class="is-active" aria-current="page"{% endif %}>{% if lang == "ru" %}{{ item.title_ru }}{% else %}{{ item.title }}{% endif %}</a></li>
+        {%- endfor %}
+      </ul>
+    </div>
+    {%- endfor %}
+  </div>
+</nav>

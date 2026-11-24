@@ -1,267 +1,303 @@
-# WarpNet Protocol
-
-This document describes the peer-to-peer communication layer of WarpNet, including transport channels, routing logic, and delivery semantics. It focuses on how nodes exchange encrypted messages over libp2p.
-
+---
+title: Wire Protocol
+description: How Warpnet nodes talk to each other - libp2p protocol IDs, the signed message envelope, request/response streams, gossip topics, versioning and errors.
 ---
 
-## 1. Transport Protocols
+# Wire Protocol
 
-WarpNet uses [libp2p](https://github.com/libp2p/go-libp2p) as its networking layer. 
-Communication between nodes occurs over authenticated and encrypted channels using the **Noise** protocol 
-and a shared **PSK**.
+This page describes the application protocol that Warpnet nodes speak on top of libp2p: how routes are named, what a request looks like on the wire, how it is signed and checked, which messages are gossiped, and how incompatible nodes are kept apart. It is written for developers and reviewers; the transport underneath (TLS camouflage, PSK, Noise, NAT traversal) is covered in [Network](network.md), and the full route list is in the [API reference](developer-guide/api.md).
 
-### What is a libp2p stream?
+## At a glance
 
-A **libp2p stream** is:
+| Layer | What it is | Code |
+|---|---|---|
+| Route | A libp2p protocol ID such as `/public/post/react/0.0.0` | [`event/paths.go`](https://github.com/Warp-net/warpnet/blob/main/event/paths.go) |
+| Exchange | One stream per request: write one JSON envelope, half-close, read one JSON response | [`core/stream/stream.go`](https://github.com/Warp-net/warpnet/blob/main/core/stream/stream.go) |
+| Envelope | `event.Message`: body, ids, route, timestamp, Ed25519 signature | [`event/event.go`](https://github.com/Warp-net/warpnet/blob/main/event/event.go) |
+| Checks | Rate limit, signature, freshness, private-route access, idempotency | [`core/middleware`](https://github.com/Warp-net/warpnet/tree/main/core/middleware) |
+| Broadcast | GossipSub topics for timelines, peer discovery, CRDT deltas, reports | [`core/pubsub/gossip.go`](https://github.com/Warp-net/warpnet/blob/main/core/pubsub/gossip.go) |
+| Compatibility | Network name and major version baked into the private-network key | [`security/psk.go`](https://github.com/Warp-net/warpnet/blob/main/security/psk.go) |
 
-* A **logical connection**, established between two peers *on top of an existing libp2p connection*
-* Identified by a **protocol ID string**, such as `/private/post/tweet/0.0.0`
-* **Multiplexed**: multiple streams can share a single physical connection (e.g., TCP + Noise)
-* **Bidirectional**: both peers can read and write from/to the stream
-* Automatically encrypted and authenticated using the Noise protocol + PSK
+## Protocol IDs
 
----
-
-### How streams are used in WarpNet
-
-Every operation between two WarpNet nodes uses a distinct libp2p stream. For example:
-
-* A timeline post opens a stream using protocol `/private/post/tweet/0.0.0`
-* A request to fetch the user's timeline opens a stream `/private/get/timeline/0.0.0`
-* A public message broadcast to a peer opens a stream `/public/post/message/0.0.0`
-
-Each stream is:
-
-1. **Opened by the initiating node**
-2. **Processed by the recipient’s stream handler**, which is registered per protocol route
-3. **Closed** once the operation is complete
-
----
-
-### Stream-level Isolation
-
-* Stream operations are **sandboxed by protocol**
-* Each handler in the node is registered to a specific protocol path
-* Streams are subject to **authorization middleware**, especially for private routes 
-  (see 4. Stream Authentication Middleware)
-
----
-
-All WarpNet protocols follow a structured URI-style format that encodes access level, operation type, 
-resource domain, and version. This convention is used to route and dispatch messages between peers, 
-and also to enforce access boundaries.
+Every application route is a libp2p protocol ID with this shape:
 
 ```text
-/{visibility}/{operation}/{domain}/{version}
+/{visibility}/{verb}/{entity}[/{sub}...]/{version}
 ```
 
-Where:
+| Segment | Values | Example |
+|---|---|---|
+| `visibility` | `private` or `public` | `/private/...` |
+| `verb` | `get`, `post` or `delete` | `/private/get/...` |
+| `entity` | the thing acted on, optionally followed by sub-segments | `tweet`, `settings/filter/keyword` |
+| `version` | `0.0.0` on every route today | `/0.0.0` |
 
-| Segment      | Meaning                                           | Example             |
-| ------------ | ------------------------------------------------- | ------------------- |
-| `visibility` | `public` or `private` access                      | `/private/...`      |
-| `operation`  | `get`, `post`, `delete`, etc.                     | `/post/...`         |
-| `domain`     | Logical entity (e.g., `tweet`, `message`, `user`) | `/tweet/`, `/chat/` |
-| `version`    | Semantic version of protocol                      | `/0.0.0`            |
+Examples: `/private/post/tweet/0.0.0`, `/public/get/tweet/reactors/0.0.0`, `/private/delete/settings/filter/keyword/0.0.0`.
 
-This makes the protocol self-descriptive and extensible without breaking compatibility.
+A few rules follow from the code rather than from the naming convention:
 
-### 🧾 Example
+- A route counts as a read when its ID contains the substring `get` (`WarpRoute.IsGet` in [`core/stream/routes.go`](https://github.com/Warp-net/warpnet/blob/main/core/stream/routes.go)). Reads get larger response limits, are never queued in the outbox, and are never replayed from gossip.
+- A route counts as private when its ID contains `private`.
+- The idempotency cache applies to routes whose ID contains `/post/`.
+- `event.InternalRoutePrefix` (`/internal`) is defined and accepted by handler registration, but no route uses it.
+
+### Who serves which routes
+
+`event/paths.go` defines 126 route constants. Not all of them are stream handlers:
+
+| Node role | Routes registered |
+|---|---|
+| Member (desktop and remote flavours) | 120: every constant except the six below |
+| Relay | `/public/get/info/0.0.0`, `/public/post/relay/refuse/reservation/0.0.0` |
+| Moderator | `/public/get/info/0.0.0`, `/public/get/moderate/challenge/0.0.0` (defined in `cmd/node/moderator/audit`) |
+
+The six constants a member node does not serve:
+
+| Route | Handled by |
+|---|---|
+| `/private/post/login/0.0.0`, `/private/post/logout/0.0.0` | The desktop app (`cmd/node/member/app.go`) or the remote node's `/ws` bridge, before or after the node runs |
+| `/private/get/update/0.0.0`, `/private/post/update/0.0.0` | The desktop app's self-updater only |
+| `/public/post/admin/challenge/0.0.0` | Nothing; defined and rate-limited, but no handler is registered |
+| `/public/post/relay/refuse/reservation/0.0.0` | Relay nodes only (a member sends it, see [Network](network.md#relay-reservation-refusals)) |
+
+Besides these routes, nodes speak the standard libp2p protocols (identify, ping, GossipSub, circuit relay v2, DCUtR, AutoNAT v2) and the Kademlia DHT under a network-specific prefix: `/warpnet/kad/1.0.0` on mainnet and `/testnet/kad/1.0.0` on testnet.
+
+## Private and public routes
+
+The visibility segment is enforced by the auth middleware ([`core/middleware/auth.go`](https://github.com/Warp-net/warpnet/blob/main/core/middleware/auth.go)), not only by convention.
+
+A **private** route is served only when the caller is:
+
+1. the node itself (a loopback self-stream from its own UI), or
+2. a device paired with this node (a peer ID stored by `/private/post/admin/pair/0.0.0`), or
+3. anyone calling `/private/post/admin/pair/0.0.0` itself; the pairing handler then checks the session token.
+
+Any other peer gets `middleware: auth: unknown client peer`. A member node clears its list of paired devices when it starts.
+
+A **public** route can be called by any peer that got through the private-network key, Noise and the signature check. Handlers that act on behalf of a user additionally check *authorship*: the actor named in the event must belong to the node at the other end of the stream (or to this node, when a paired device calls on the owner's behalf). See `warpnet.VerifyAuthorship` in [`core/warpnet/warpnet.go`](https://github.com/Warp-net/warpnet/blob/main/core/warpnet/warpnet.go) and [`core/authorship`](https://github.com/Warp-net/warpnet/tree/main/core/authorship). A peer that claims someone else's actions gets `event did not come from its author's node`, and the event lowers its rating.
+
+## Request and response
+
+Each request uses its own libp2p stream. There is no session, no multiplexing of several requests on one stream and no length prefix; end-of-stream is the frame delimiter.
+
+```mermaid
+sequenceDiagram
+    participant A as Caller node
+    participant B as Serving node
+    A->>B: open stream with protocol ID
+    A->>B: one JSON envelope (event.Message)
+    A->>B: close write side (EOF)
+    Note over B: read up to the route limit,<br/>run middleware and handler
+    B->>A: one JSON response
+    B->>A: close stream
+```
+
+What the sender does ([`core/stream/stream.go`](https://github.com/Warp-net/warpnet/blob/main/core/stream/stream.go)):
+
+1. Opens the stream with a 10-second budget for dialing and protocol negotiation. The stream may ride a relayed (limited) connection.
+2. Builds the envelope with a fresh ULID `message_id`, its own peer ID in `node_id`, the route in `path`, the current UTC time and `version` `0.0.0`, then signs it.
+3. Writes the JSON and closes its write side.
+4. Reads the response until EOF, with a 2-minute read deadline and the route's size limit.
+
+What the receiver does ([`core/node/node.go`](https://github.com/Warp-net/warpnet/blob/main/core/node/node.go), `unwrap`):
+
+1. Reads the request until EOF, within 15 seconds (5 minutes on media upload routes) and within the request size limit. An oversize request resets the stream without a reply.
+2. Runs the middleware chain and the route handler.
+3. Encodes the handler's result as JSON (a string or byte result is written as is) and writes it, then closes the stream.
+
+### Retries and offline peers
+
+- If the dial fails because the peer has no known address, every dial failed, the DHT lookup failed or the 10 seconds ran out, the call fails with `node is offline`. The peer is then short-circuited as offline for 30 seconds, or until it reconnects.
+- If the request was written but the response was lost, the sender retries once at once with the **same** `message_id`, so the receiver's idempotency cache answers it without running the handler twice.
+- Other failures are retried with a 1-second pause, up to 5 attempts within a 10-second budget.
+- Identical concurrent sends (same route, peer and body) collapse into one.
+
+### Outbox for offline peers
+
+Writes to other nodes (any non-`get` route) go through a persistent outbox ([`core/stream/outbox.go`](https://github.com/Warp-net/warpnet/blob/main/core/stream/outbox.go)). The write is stored before it is sent and removed once the peer answers with anything other than a rate-limit error. Queued writes are flushed when the peer connects again and every 5 minutes. A write identical to the last one queued for the same peer is stored once. Reads are never queued.
+
+### Local calls use the same path
+
+The desktop UI, the remote node's browser dashboard and paired phones do not have a separate API. The node routes their requests through the same handlers and middleware:
+
+- **Self-stream.** The desktop app and the remote node's `/ws` bridge sign the envelope with the owner's key and push it through an in-memory loopback stream (`SelfStream`, [`core/stream/loopback-stream.go`](https://github.com/Warp-net/warpnet/blob/main/core/stream/loopback-stream.go)). The I/O deadline is 1 minute (10 minutes for the X archive import route). Freshness checks are skipped for loopback.
+- **Paired device.** The Android app opens real libp2p streams to its node, signed with the phone's own key; private routes are allowed because the phone's peer ID was registered at pairing.
+- **Peer stream.** When a handler needs another node, it calls the same route on that node over a real stream (`GenericStream`). Calling your own node this way is refused with `self request is not allowed`.
+
+A typical public route is handled twice. For example, reacting to someone's tweet:
+
+1. Your UI calls `/public/post/react/0.0.0` on your own node through a self-stream.
+2. Your node records the reaction and forwards the same event over a peer stream to the node of the tweet's author.
+3. The author's node runs the same handler, sees that the reactor is not its owner, records the reaction and adds a notification.
+
+If the author's node is offline, step 2 ends in the outbox and is delivered later.
+
+## The message envelope
+
+Requests and gossip messages share one envelope, `event.Message`:
+
+```json
+{
+  "body": {"tweet_id": "01J...", "user_id": "a1b2...", "owner_id": "c3d4..."},
+  "message_id": "01JD7Q3K8V6N2M4P5R7S9T0W1X",
+  "node_id": "12D3KooW...",
+  "path": "/public/post/react/0.0.0",
+  "timestamp": "2026-11-24T10:15:30.123456789Z",
+  "version": "0.0.0",
+  "signature": "base64..."
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `body` | JSON value | The route's request DTO, kept as raw bytes and signed byte for byte |
+| `message_id` | string | Unique per request. ULID on node-to-node streams; UUID on gossip and from the UI. Required: an envelope without it is rejected |
+| `node_id` | string | Sender's libp2p peer ID. Informational on streams; on gossip it names the publisher |
+| `path` | string | The route (Go field `Destination`) |
+| `timestamp` | RFC 3339 time | Sender's clock, UTC |
+| `version` | string | Always `0.0.0` today |
+| `signature` | string | Base64 Ed25519 signature, see below |
+| `bridge_key` | string, optional | Set only on messages to the Fediverse gateway: the key the gateway acts with for the sender on bridged networks |
+
+The response is **not** wrapped in an envelope: the receiver writes the bare response DTO (see [Errors](#errors-and-responses)).
+
+Request and response bodies are plain JSON (encoded with json-iterator in standard-library-compatible mode). Field names are snake_case. Binary media travels as base64 strings inside JSON.
+
+## Signing
+
+The signature covers exactly these bytes (`Message.SigningBytes`):
 
 ```text
-/private/post/tweet/0.0.0
+raw body bytes  ||  timestamp as decimal Unix nanoseconds  ||  path
 ```
 
-> A private POST call to submit a new tweet using protocol version 0.0.0
+It is an Ed25519 signature with the node's identity key, base64-encoded with the standard alphabet ([`security/signature.go`](https://github.com/Warp-net/warpnet/blob/main/security/signature.go)).
 
----
+The receiver checks it against the public key embedded in the **peer ID of the connection**, not against the `node_id` field. A libp2p peer ID of an Ed25519 key contains the key, so no key exchange or lookup is needed. Then:
 
-## Full List of Supported Protocols
+- **Freshness.** For remote peers, the timestamp must be within 5 minutes of the receiver's clock in either direction; otherwise `middleware: auth: stale or replayed message`. Loopback calls from the node's own UI are exempt. Nodes therefore need roughly correct clocks.
+- **Replay.** Together with the 10-minute idempotency cache on `post` routes, the window limits how long a captured request could be replayed.
 
-Here is the current list of all supported protocol routes used by member nodes:
+Because the path is part of the signed bytes, a signed body cannot be replayed against another route.
 
-### Private Protocols
+## Middleware chain
 
-#### `POST`
+Every node role wraps every route in the same chain, outermost first ([`cmd/node/member/node/member-node.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/node/member-node.go)):
 
-* `/private/post/admin/pair/0.0.0`
-* `/private/post/login/0.0.0`
-* `/private/post/logout/0.0.0`
-* `/private/post/tweet/0.0.0`
-* `/private/post/user/0.0.0`
-* `/private/post/reset/0.0.0`
-* `/private/post/image/0.0.0`
+| Step | What it does |
+|---|---|
+| unwrap | Reads the request within limits, writes the response, converts handler errors into `{code, message}` |
+| Logging | Logs stream open/close and duration at debug level |
+| Rate limiter | Per peer and route leaky bucket; over the limit answers code `5001` without running the handler |
+| Auth | Parses the envelope, verifies the signature and freshness, enforces private-route access, passes the inner `body` on |
+| Idempotency | On `/post/` routes, caches the response by route, peer and `message_id` for 10 minutes; duplicates in flight wait for the first |
 
-#### `GET`
+Rate limits ([`core/ratelimit/stream.go`](https://github.com/Warp-net/warpnet/blob/main/core/ratelimit/stream.go), [`core/ratelimit/settings.go`](https://github.com/Warp-net/warpnet/blob/main/core/ratelimit/settings.go)) do not apply to the node's own loopback calls. Defaults:
 
-* `/private/get/admin/stats/0.0.0`
-* `/private/get/chat/0.0.0`
-* `/private/get/chats/0.0.0`
-* `/private/get/message/0.0.0`
-* `/private/get/messages/0.0.0`
-* `/private/get/timeline/0.0.0`
+| Routes | Burst | Per minute |
+|---|---|---|
+| Reads (default, owner-configurable) | 60 | 300 |
+| Writes (default, owner-configurable) | 30 | 120 |
+| Media downloads (`/public/get/image`, `video`, chat and sponsored media) | 150 | 600 |
+| Uploads (`/private/post/image`, `video`, chat media) | 10 | 30 |
+| Timeline delivery and moderation verdicts | 200 | 1200 |
+| Chat creation and messages | 60 | 300 |
+| Reports | 10 | 30 |
+| Pairing and `admin/challenge` | 5 | 15 |
+| Any route called by the Fediverse gateway | 600 | 6000 |
 
-#### `DELETE`
+A peer with a lower [rating](rating.md) gets a fraction of these (0.5, 0.25 or 0.1 of burst and rate), never zero. The owner can change the read/write defaults with `/private/post/settings/ratelimit/0.0.0`.
 
-* `/private/delete/chat/0.0.0`
-* `/private/delete/message/0.0.0`
-* `/private/delete/tweet/0.0.0`
+The idempotency cache holds up to 1024 entries and stores only successful responses of at most 64 KiB.
 
----
+## Size limits and timeouts
 
-### Public Protocols
+| Limit | Value | Applies to |
+|---|---|---|
+| Request size | 50 MiB | `/private/post/image`, `/private/post/video`, `/private/post/import/twitter/tweet`, `/private/get/sponsored/buyer` |
+| Request size | 1 MiB | every other route |
+| Response size | 50 MiB | `/public/get/image`, `/public/get/video`, `/public/get/sponsored/image`, `/public/get/sponsored/video` |
+| Response size | 8 MiB | other `get` routes |
+| Response size | 1 MiB | every other route |
+| Open stream (dial + negotiate) | 10 s | sender |
+| Request read | 15 s, or 5 min on the 50 MiB request routes | receiver |
+| Response read | 2 min | sender |
+| Loopback call | 1 min, 10 min for the import route | self-stream |
+| Concurrent inbound video streams | 2 per peer | `/public/get/video`, chat and sponsored video |
 
-#### `GET`
+Limits are defined in [`core/stream/stream.go`](https://github.com/Warp-net/warpnet/blob/main/core/stream/stream.go) and [`core/ratelimit/stream.go`](https://github.com/Warp-net/warpnet/blob/main/core/ratelimit/stream.go).
 
-* `/public/get/followees/0.0.0`
-* `/public/get/followers/0.0.0`
-* `/public/get/info/0.0.0`
-* `/public/get/replies/0.0.0`
-* `/public/get/reply/0.0.0`
-* `/public/get/tweet/0.0.0`
-* `/public/get/tweetstats/0.0.0`
-* `/public/get/tweets/0.0.0`
-* `/public/get/user/0.0.0`
-* `/public/get/users/0.0.0`
-* `/public/get/image/0.0.0`
+## Errors and responses
 
-#### `POST`
+A handler that succeeds returns its response DTO as JSON. A handler with nothing to return answers with the literal string:
 
-* `/public/post/admin/verifynode/0.0.0`
-* `/public/post/chat/0.0.0`
-* `/public/post/follow/0.0.0`
-* `/public/post/like/0.0.0`
-* `/public/post/message/0.0.0`
-* `/public/post/reply/0.0.0`
-* `/public/post/retweet/0.0.0`
-* `/public/post/unfollow/0.0.0`
-* `/public/post/unlike/0.0.0`
-* `/public/post/unretweet/0.0.0`
+```json
+{"code":0,"message":"Accepted"}
+```
 
-#### `DELETE`
+Failures use the same shape, `event.ResponseError`:
 
-* `/public/delete/reply/0.0.0`
+```json
+{"code":5000,"message":"middleware: auth: stale or replayed message"}
+```
 
----
+| Situation | Response |
+|---|---|
+| Handler returned an error, or auth failed (bad envelope, missing or invalid signature, stale message, private route denied) | code `5000`, message is the error text |
+| Rate limit exceeded | code `5001`, `middleware: too many requests for this route` |
+| Request could not be read | code `0`, `middleware: stream: reading failed` |
+| Node is shutting down | code `0`, `node is offline` |
+| Handler returned nothing | code `0`, `empty response` |
+| Request larger than the route limit | stream reset, no response |
 
-## Benefits of Structured Protocols
+Node code treats a response that decodes to `{code, message}` with a non-empty message as a failure, with `Accepted` as the success exception. When forwarding to another node fails with `node is offline`, most handlers still answer the local caller with the locally stored result.
 
-* **Self-documenting**: Each protocol clearly communicates its purpose
-* **Modular dispatch**: Handlers can be dynamically mapped via URI parsing
-* **Access control**: Easy to enforce public/private rules by prefix
-* **Versionable**: Future changes can use semantic versions without breaking older clients
+## Gossip topics
 
-All application-layer messages are serialized as raw JSON (or binary encoding TBD), and transmitted over multiplexed libp2p streams.
+Broadcasts use GossipSub ([`core/pubsub/gossip.go`](https://github.com/Warp-net/warpnet/blob/main/core/pubsub/gossip.go)). The discovery, timeline, report and vote topics carry the same `event.Message` envelope, signed over `SigningBytes` with the publisher's node key. The two CRDT topics carry the CRDT library's own delta messages instead.
 
----
+| Topic | Published by | Carries |
+|---|---|---|
+| `/warpnet/discovery/1.0.0` | every role | The publisher's peer ID and addresses plus up to 10 connected peers; see [Discovery](discovery.md#pubsub-gossip) |
+| `user-update-<userId>` | the author's member node; moderators | Timeline fan-out: envelopes with `path` `/public/post/timeline/0.0.0` (new tweet) or `/public/delete/timeline/0.0.0`; moderation verdicts with `/public/post/moderate/result/0.0.0` |
+| `/warpnet/stats/1.0.0` | members | CRDT deltas for tweet counters (reactions, retweets, replies, views, poll votes); see [Synchronization](synchronization.md) |
+| `/warpnet/rating/1.0.0` | every role | Signed node rating records; see [Rating](rating.md) |
+| `/warpnet/reports/1.0.0` | members | User reports for moderators; see [Moderation](moderation.md) |
+| `/warpnet/moderation/votes/1.0.0` | moderators | Moderator ballots |
 
-### Example: Posting a Tweet
+How a follower receives a timeline update:
 
-1. The frontend sends an encrypted message to the local node via WebSocket
-2. The client node routes it to the main node
-3. The main node dials the appropriate peer and opens a stream:
+1. Following a user subscribes the node to `user-update-<userId>`; unfollowing unsubscribes. On start, a member subscribes to the topics of everyone it follows (bridged accounts excepted).
+2. A received message is decoded, and if its `path` is not a `get` route it is replayed into the node's own handler for that path through a self-stream, with the publisher's peer ID as the caller.
+3. The auth middleware therefore verifies the publisher's signature and the 5-minute freshness window, exactly as for a direct stream.
 
-   ```
-   body := event.NewTweetEvent{
-            CreatedAt: tweet.CreatedAt,
-            Id:        tweet.Id,
-            ParentId:  tweet.ParentId,
-            RootId:    tweet.RootId,
-            Text:      tweet.Text,
-            UserId:    tweet.UserId,
-            Username:  tweet.Username,
-            ImageKey:  tweet.ImageKey,
-       }
-   stream := host.NewStream(ctx, peerID, "/private/post/tweet/0.0.0", body)
-   ```
-4. The message is written to the stream and the stream is closed
+Gossip peer scoring follows the [rating](rating.md): peers at the lowest tier fall below the graylist threshold (-100) and are no longer read; other low tiers lose their place in the mesh. On member nodes the peer blocklist also feeds GossipSub's blacklist.
 
----
+## Versioning and compatibility
 
-### Stream Format
+There is no per-route version negotiation. The `0.0.0` suffix on routes and the `version` field in the envelope are fixed placeholders.
 
-All stream payloads are currently:
+Compatibility is enforced one layer lower, by the private-network key (PSK):
 
-* Serialized as **JSON** objects (subject to change)
-* Encapsulated per stream: no interleaving, each stream handles a single logical operation
-* Length-prefixed (handled by libp2p's stream muxer)
+```text
+PSK = SHA-256(network name || major version)
+```
 
----
+The network is `warpnet` (mainnet; `mainnet` is accepted as an alias) or `testnet`, and the major version comes from the release version (`0.8.124` gives `0`). For example, every 0.x mainnet node uses `SHA-256("warpnet0")`. libp2p's private-network layer encrypts the whole connection with this key, so a node from another network or another major version fails during connection setup, before any stream or Warpnet message exists. When a self-update crosses a major version, the node logs that its network key rotates and it will only meet peers on the new major.
 
-## 2. Message Routing
+The PSK is public; it separates networks and incompatible versions and is not a secret. See [Network](network.md#the-pre-shared-key-is-public).
 
-When a message arrives at the node (via WS or internal interface), it is routed based on its type:
+Within one major version, nodes stay compatible by tolerant JSON:
 
-- **Public timeline post** → sent to all known friends via `public/post/timeline/0.0.0`
-- **Private message** → dialed directly to recipient via `/private/get/chat/0.0.0`
+- Unknown fields are ignored, so new optional fields can be added. Examples: `emoji` on reactions defaults to the standard reaction when an older client omits it; `my_reaction` in tweet stats is always present so a client can tell a newer node from an older one.
+- Old response shapes are still accepted where they changed, for example a legacy error format (a bare JSON array of strings) and older ways relays identified themselves in `/public/get/info/0.0.0`.
+- `/public/get/info/0.0.0` returns `NodeInfo`, which includes the peer's version and the list of protocols it serves, so a caller can see what the other side supports.
 
-Routing logic is implemented in the **client node**, while **message storage and broadcast** happens 
-in the **main node**.
+## See also
 
----
-
-## 3. Delivery Semantics
-
-WarpNet operates under **best-effort, eventually-consistent delivery**:
-
-- No strict delivery guarantees are provided
-- Duplicate messages are allowed and must be filtered locally
-- Each message includes a unique identifier and timestamp
-- Timeline merge is **deterministic per node** based on user ID and timestamp
-
-There is no centralized queue or acknowledgment mechanism. All reliability must be handled by retry 
-or idempotent storage.
-
----
-
-## 4. Stream Authentication Middleware
-
-All incoming libp2p streams in WarpNet pass through an **authorization middleware** that 
-ensures **only the designated client node** can access private routes on the host node.
-
-### Purpose
-
-* Enforce **access boundaries** between external clients and node internals
-* Prevent unauthorized libp2p peers from calling `private/*` protocol handlers
-* Allow exactly **one tethered client node** per runtime session
-
----
-
-### How It Works
-
-1. When a new stream is opened:
-
-    * If the protocol is `PRIVATE_POST_PAIR`, the **first peer to connect** is **registered as the 
-      authorized client node**.
-    * Its `RemotePeer()` (libp2p PeerID) is stored in `p.clientNodeID`.
-
-2. For all future **`private/*` protocol streams**:
-    * The handler **rejects** the stream if:
-        * `clientNodeID` is not yet set, or
-        * The caller’s `RemotePeer()` ≠ `clientNodeID`
-    * If the protocol is **`public/*`**, no check is performed — it's allowed from any peer.
-
-This mechanism allows one and only one **"client-facing" peer** to interact with internal private protocols 
-of the node during its lifecycle.
-
----
-
-### Security Implications
-
-* Once a `clientNodeID` is tethered, only that peer can perform actions like:
-
-    * Posting tweets
-    * Reading timelines
-    * Deleting chats/messages
-* All other peers attempting to access `/private/*` will be rejected with an `ErrUnknownClientPeer`
-
----
-
-### Lifecycle Consideration
-
-If the node restarts or is re-initialized, a **new `PRIVATE_POST_PAIR`** must be sent to re-bind the client node.
-
-> ❗There is no revocation or rebind support in current implementation — first bind wins for the session.
-
----
-
+- [Network](network.md): transport, PSK, Noise, NAT traversal
+- [Discovery](discovery.md): how peers are found
+- [API reference](developer-guide/api.md): every route with its DTOs
+- [Stream API](developer-guide/stream-API.md): writing a client that talks to a node
+- [Security](security.md): identity, keys and signatures

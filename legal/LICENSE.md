@@ -1,3 +1,8 @@
+---
+title: License
+description: GNU Affero General Public License v3.0 covering the Warpnet source code.
+---
+
 Warpnet - Decentralized Social Network
 Copyright (C) 2025 Vadim Filin, https://github.com/Warp-net,
 <github.com.mecdy@passmail.net>
@@ -15,7 +20,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-WarpNet is provided “as is” without warranty of any kind, either expressed or implied.
+Warpnet is provided “as is” without warranty of any kind, either expressed or implied.
 Use at your own risk. The maintainers shall not be liable for any damages or data loss
 resulting from the use or misuse of this software.
 

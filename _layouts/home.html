@@ -1,0 +1,29 @@
+---
+layout: default
+---
+{%- include lang.html -%}
+<section class="home">
+  <div class="home__lang">{% include lang-switch.html %}</div>
+  <div class="home__hero">
+    <img class="home__logo" src="{{ site.logo }}" alt="Warpnet logo" width="88" height="88">
+    {{ content }}
+  </div>
+
+  {%- for section in site.data.navigation %}
+  <section class="home__group" aria-labelledby="group-{{ forloop.index }}">
+    <h2 class="home__group-title" id="group-{{ forloop.index }}">{% if lang == "ru" %}{{ section.title_ru }}{% else %}{{ section.title }}{% endif %}</h2>
+    <ul class="home__grid">
+      {%- for item in section.items %}
+      {%- assign item_url = prefix | append: item.url %}
+      {%- assign target = site.pages | where: "url", item_url | first %}
+      <li class="home__card">
+        <a href="{{ item_url | relative_url }}">{% if lang == "ru" %}{{ item.title_ru }}{% else %}{{ item.title }}{% endif %}</a>
+        {%- if target.description %}
+        <p>{{ target.description }}</p>
+        {%- endif %}
+      </li>
+      {%- endfor %}
+    </ul>
+  </section>
+  {%- endfor %}
+</section>

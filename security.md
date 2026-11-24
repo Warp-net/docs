@@ -1,175 +1,237 @@
-# WarpNet Security Model
-
-![sec-model.png](assets/sec-model.png)
-
-WarpNet is designed as a secure, decentralized, serverless communication system. Its security architecture 
-is layered and cryptographically grounded, with no need for third-party trust or certification authorities.
-
-## 1. Storage Layer Security (main security level)
-
-WarpNet uses [BadgerDB](https://github.com/dgraph-io/badger) as its embedded storage engine. 
-All user data is stored locally and **encrypted at rest**.
-
-### Encrypted Local Database
-
-When the node is started, it requires the user to log in with a **username and password**. 
-These credentials are used to:
-
-1. **Unlock and decrypt** the BadgerDB database
-2. **Generate an in-memory session token** used for frontend-backend authentication
-3. **Derive the node’s long-term private key**
-
-> This means that access to the database is impossible without the correct username/password pair. 
-> There is no "backdoor", recovery key, or fallback mode (yet).
-
+---
+title: Security
+description: How Warpnet derives your keys, encrypts your data and connections, authenticates every message, limits abuse, and what it does not protect against.
 ---
 
-### Credential-Derived Secrets
+# Security
 
-On login, the following occurs:
+This page describes the security model of Warpnet as it is implemented today: where your keys come from, what is encrypted and with what, how nodes authenticate each other's messages, how abuse is limited, and which threats are out of scope. It is written for users who want to know what they can rely on and for developers who want to check the code behind each claim. Where a protection is weak or missing, the page says so.
 
-#### Session Token Generation
+## Threat model in brief
 
-A random + time-based seed is hashed to create a one-time session token:
+Warpnet has no server tier: every user runs a node that keeps the account's data on the user's own machine and talks to other nodes directly. The design assumes that the network in between, other peers and relays may be hostile, and that nobody holds a master key or a backdoor.
 
-```javascript
-tokenSeed = username + "@" + password + "@" + randomChar + "@" + currentTime
-token = sha256(tokenSeed)
+| Asset | Protected by | Not protected against |
+|---|---|---|
+| Your account and node identity | Keys derived from your username and password with Argon2id; never stored on disk | A weak password combined with a stolen database; malware on your computer |
+| Your stored data | Database encryption at rest (AES-256) under a password-derived key | Anyone who knows your password; an unlocked running node |
+| Traffic between nodes | Noise XX encryption and mutual authentication on every connection | Connection metadata: who connects to whom, when, from which IP |
+| Requests and events | Ed25519 signature on every message, freshness check, author checks | A peer that signs garbage with its own valid key (handled by rate limits and rating) |
+| Moderation verdicts | Signed votes, recounted by every node before use | An attacker with several throwaway moderator keys (see [Moderation](moderation.md#limits)) |
+| The software you run | Signed release checksums, verified by the self-updater | Peers running modified builds |
+
+## Identity and key derivation
+
+Your identity is not a file. Every time you log in, the node derives your keys from three inputs: **username**, **password** and **network** (`warpnet` or `testnet`; the legacy name `mainnet` is treated as `warpnet`). Nothing secret is written to disk, so the same three inputs on another computer produce the same node identity.
+
+### Password rules
+
+The node rejects a password at login unless it is 8 to 32 characters long and contains at least one uppercase letter, one lowercase letter, one digit and one special character. Leading and trailing spaces are trimmed first ([`cmd/node/member/auth/auth.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/auth/auth.go)).
+
+### What is derived
+
+All password-based keys use Argon2id with time cost 1, 64 MiB of memory, 4 lanes and a 32-byte output. The salt is not random: it is a SHA-256 hash of a fixed context string and your account details, joined with zero bytes ([`security/kdf.go`](https://github.com/Warp-net/warpnet/blob/main/security/kdf.go), [`security/aes.go`](https://github.com/Warp-net/warpnet/blob/main/security/aes.go)).
+
+```text
+identity salt = SHA-256("warpnet/kdf/v1/identity-key" 0x00 network 0x00 username)
+identity seed = Argon2id(password, identity salt)
+identity key  = Ed25519 key from SHA-256(identity seed || hash-algorithm id || key-type id)
+node ID       = libp2p peer ID of the identity public key
+
+database salt = SHA-256("warpnet/kdf/v1/database-key" 0x00 username)
+database key  = Argon2id(password, database salt)
+
+wallet salt   = SHA-256("warpnet/kdf/v1/wallet-seed" 0x00 network 0x00 username)
+wallet seed   = Argon2id(identity private key, wallet salt)
+
+bridge key    = HKDF-SHA256(identity seed, info "warpnet/bridge/v1"), 32 bytes
 ```
 
-This token is used for authenticating requests from the frontend (e.g. over WebSocket) and from client node.
+The last step of the identity derivation is in [`security/pk.go`](https://github.com/Warp-net/warpnet/blob/main/security/pk.go); the bridge key is in [`security/bridge-key.go`](https://github.com/Warp-net/warpnet/blob/main/security/bridge-key.go) and is described [below](#bridge-key). The intermediate identity seed is wiped from memory after use.
 
-#### Deterministic Private Key
+What follows from this:
 
-The node's private key is derived deterministically from the login credentials:
+- **No recovery.** There is no reset link and no recovery key. If you forget the password, the identity and the encrypted database are gone.
+- **One identity per network.** The network name is part of the identity salt, so the same credentials give a different node ID on `warpnet` and on `testnet`.
+- **Your node ID is derived, your user ID is not.** The user ID (a ULID) is created at random on first login and stored in the database. Logging in with the same credentials on a fresh machine gives you the same node ID but a new, empty account. Keep a backup of the data directory ([Backup and restore](user-guide/backup-and-restore.md)).
+- **The password is the strength of everything.** Argon2id makes each guess expensive, but a short or common password can still be guessed offline by someone who has copied your database files.
 
-```javascript
-pkSeed = sha256(username + "@" + password + repeat("@", password.length)) // no random
-privateKey = GenerateKeyFromSeed(pkSeed)
-```
+### Session token
 
-This ensures that the private key is:
+At the first successful login in a node process, the node generates a session token from 32 random bytes (base64-encoded). It lives only in memory and authorizes device pairing (see [Device pairing](#device-pairing)). A new process gets a new token ([`database/auth-repo.go`](https://github.com/Warp-net/warpnet/blob/main/database/auth-repo.go)).
 
-* **Not stored on disk**
-* Reproducible from credentials alone
-* Consistent between sessions (if the user logs in again)
+### Other node roles
 
-> If the user forgets their password, the private key and database are unrecoverable.
+Relay and moderator nodes have no account and no password. A moderator generates a fresh random key every time it starts ([`cmd/node/moderator/main.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/moderator/main.go)); a relay derives its key from `--node.seed`. See [Relay node architecture](relay-node-architecture.md).
 
----
+## Encryption at rest
 
-### File-level Protection
+A member node stores everything in an embedded [BadgerDB](https://github.com/dgraph-io/badger) database. The node opens it with the 32-byte database key above, and Badger encrypts its data files with AES-256 in CTR mode ([`database/local-store/db.go`](https://github.com/Warp-net/warpnet/blob/main/database/local-store/db.go)). A wrong password surfaces as an encryption-key mismatch and the node reports "wrong password".
 
-BadgerDB files are only accessible to the user that runs the node. It is recommended to use file-system encryption 
-and OS-level sandboxing in addition to the internal crypto.
+Keep in mind:
 
----
+- The database key does not include the network name, but each network has its own database directory, so the two never share data.
+- Files kept outside the database, such as the remote node's dashboard key `ws-noise.key` (permissions `0600`), are not encrypted by Warpnet.
+- While the node runs and you are logged in, the key is in memory and the data is readable by the node process. See [Process hardening](#process-hardening).
+- Full-disk encryption on your computer is still recommended: it protects against a stolen laptop even if your password is weak.
 
-## 2. Peer-to-Peer Encryption with Noise + PSK
+More on the data layout: [Storage](storage.md).
 
-All WarpNet nodes communicate using [libp2p](https://libp2p.io), which provides an encrypted transport layer using 
-the Noise Protocol Framework. Specifically, WarpNet uses the `XX` handshake pattern, combined with a Pre-Shared Key 
-(PSK) to gate network access.
+## Transport encryption
 
-### Key Features
+Every connection between Warpnet nodes, including the Android app, is encrypted and mutually authenticated with **Noise XX** (`Noise_XX_25519_ChaChaPoly_SHA256`) using the nodes' Ed25519 identity keys. A node dialing a known peer ID aborts if the other side cannot prove that identity. Underneath Noise sit a private-network layer keyed with a public pre-shared key and a TLS disguise for networks that block unknown protocols; neither of them is a security layer. The full stack and what each observer can see are described in [Network](network.md).
 
-- **End-to-end encryption** between nodes using Noise
-- **Mutual authentication** without certificates
-- **Session keys** established via **ephemeral Diffie-Hellman**
-- **Access control** via PSK — only authorized nodes can connect
+### The pre-shared key is public
 
-### No Certificates Required
-- No TLS, no certificate authorities
-- Each libp2p node generates its own asymmetric keypair (e.g. Ed25519)
-- The Noise handshake handles identity and encryption without central trust anchors
+The pre-shared key (PSK) is `SHA-256(network name + major version)`, for example `SHA-256("warpnet0")` ([`security/psk.go`](https://github.com/Warp-net/warpnet/blob/main/security/psk.go)). Anyone can compute it, and `--node.print-psk` prints it. Its job is to separate networks and incompatible major versions so that they fail on the first bytes instead of half-talking. Do not count it towards confidentiality or access control.
 
----
+### Clients and your node
 
-## 3. Pre-Shared Key (PSK)
+How the apps reach your node depends on the build:
 
-The PSK acts as a **gatekeeping mechanism** — nodes with mismatched PSKs cannot connect or handshake.
+| Client | Channel | Protection |
+|---|---|---|
+| Desktop app | In-process calls (Wails); no network listener for the UI | Local only |
+| Browser, remote node | WebSocket `/ws` on the node's dashboard port | Noise XX inside the WebSocket, node key pinned by the browser, login required |
+| Android and iOS apps | libp2p connection to your node as a paired device | Noise XX, pinned node ID, pairing token, per-request signatures |
 
-### PSK Derivation Logic
+The remote (headless) node is the one exposed to a network, so it has extra protections ([`cmd/node/member/remote/bridge.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/remote/bridge.go), [`cmd/node/member/remote-member.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/remote-member.go)):
 
-The PSK is derived locally at node startup as follows:
+- Each WebSocket starts with a Noise XX handshake (X25519, ChaCha20-Poly1305, SHA-256) against a static node key stored in `ws-noise.key` next to the database. The handshake must finish within 10 seconds.
+- The node prints the key's fingerprint at start-up. The browser pins it on first connect and refuses to continue if it ever changes (trust on first use).
+- A browser request whose `Origin` host does not match the `Host` it connects to is rejected, so another website cannot open a socket to your node.
+- Until you log in on a connection, only the login and the "is first run" check are answered; everything else returns "not signed in". After login, the browser's own Noise key is remembered in memory until you log out or the node stops.
+- At most 32 requests per connection are processed at once.
+- By default the dashboard listens on all interfaces (`--node.server.host 0.0.0.0`, port `4999`). Set `--node.server.host 127.0.0.1` to serve it to the local machine only.
+- The page itself (HTML and JavaScript) is served over plain HTTP, so on a network you do not trust it could be altered before the Noise channel exists. Reach a remote node through an SSH tunnel or a TLS reverse proxy.
 
-```javascript
-seed = networkName + codeHash + majorVersion + entropy
-psk = sha256(seed)
-````
+## Message authentication
 
-### Input Components:
+Encryption protects the pipe. On top of it, every request between nodes carries its own proof of origin ([`core/middleware/auth.go`](https://github.com/Warp-net/warpnet/blob/main/core/middleware/auth.go), [`event/event.go`](https://github.com/Warp-net/warpnet/blob/main/event/event.go)):
 
-* `networkName` — network name (e.g. `warpnet`, `testnet`)
-* `codeHash` — SHA-256 of the current codebase
-* `majorVersion` — semantic version (e.g. 1 from 1.2.3)
-* `entropy` — locally generated anchored entropy for uniqueness
+- **Signed envelopes.** Every stream message is an envelope signed with the sender's Ed25519 key. The signature covers the body, the timestamp (decimal Unix nanoseconds) and the destination route. The receiver recovers the public key from the peer ID of the connection, so a peer cannot sign as someone else. Unsigned, malformed or badly signed messages are rejected.
+- **Freshness.** A message from a remote peer whose timestamp is more than 5 minutes away from local time, in either direction, is rejected as stale or replayed. Loopback requests from the node to itself are exempt.
+- **Private routes.** Routes under `/private/` answer only the node itself and devices paired with it. The pairing route is the one exception, and it is gated by the session token.
+- **Authorship.** An event that names an author (a post, a reply, a follow, a chat) is accepted only if it arrived from that author's node, or from a paired device acting for the local owner ([`core/warpnet/warpnet.go`](https://github.com/Warp-net/warpnet/blob/main/core/warpnet/warpnet.go), [`core/authorship/authorship.go`](https://github.com/Warp-net/warpnet/blob/main/core/authorship/authorship.go)).
+- **Idempotency.** Routes with `/post/` in their path remember each successful response for 10 minutes, keyed by route, peer and message ID, so a retried request returns the first answer instead of repeating the action. The cache holds up to 1024 entries; error responses are not cached ([`core/middleware/idempotency.go`](https://github.com/Warp-net/warpnet/blob/main/core/middleware/idempotency.go)).
+- **Size and time limits.** A request may be at most 1 MiB, except image and video uploads, tweet import and the sponsored-content buyer route (50 MiB). Responses are capped at 50 MiB for media, 8 MiB for other reads and 1 MiB otherwise. Reading a request times out after 15 seconds, or 5 minutes for media ([`core/stream/stream.go`](https://github.com/Warp-net/warpnet/blob/main/core/stream/stream.go)).
+- **Gossip.** Messages published on gossip topics are wrapped in the same envelope and signed with the publisher's node key.
+- **Moderation verdicts.** A verdict carries a signature from the moderator that publishes it and a signed vote from every moderator it was counted from. Each node checks both and recounts the votes before applying anything. See [Moderation](moderation.md#signed-verdicts).
+- **Media.** Uploaded images and videos carry a metadata block signed with the uploader's node key over a hash of the file; see [Media metadata](#media-metadata).
 
-This approach ensures:
+## Codebase integrity
 
-* All participating nodes run the same code
-* Version mismatches or tampered codebases fail silently
-* No static keys in repo; all PSK generation is dynamic and deterministic
+Earlier versions of these docs said that nodes verify that their peers run the expected codebase, and that a hash of the code feeds into the PSK. Neither is true today. What exists:
 
----
+- **Version separation.** The PSK includes the major version, so nodes of different major versions cannot connect. Warpnet is in the 0.x series, so all 0.x releases share one PSK. This checks compatibility, not code.
+- **Signed releases.** Every release asset is published with a SHA-256 checksum listing and an Ed25519 signature of that listing (`*_checksums.txt` and `*_checksums.txt.sig`). The self-updater fetches the newest release from Codeberg or GitHub, verifies the signature against a release public key compiled into the binary, checks the archive's SHA-256, and only then replaces the running binary. If the new version fails to restart, the previous binary is restored ([`core/selfupdate/selfupdate.go`](https://github.com/Warp-net/warpnet/blob/main/core/selfupdate/selfupdate.go)).
+- **Owner consent.** The desktop app asks its owner before installing an update. Relay and moderator nodes install updates unattended; the headless remote node does not run the updater. `--node.self-update=false` turns the updater off. A copy that cannot replace its own binary, such as one installed by a system package manager, only announces new versions.
 
-## 4. Internode challenge using node own codebase and signature verification
+What does not exist: there is no runtime check of what software a peer runs. A modified build derives the same PSK and joins the network normally. A route for a node challenge (`/public/post/admin/challenge/0.0.0`) is defined and rate-limited, but no handler is registered for it. Everything else on this page assumes that other peers may run modified software.
 
-WarpNet now includes a cryptographic challenge-response mechanism as part of the node discovery process. 
-This feature ensures that newly connected peers are authentic, running the expected codebase, and not attempting to 
-spoof or impersonate legitimate nodes.
+## Rate limiting and abuse resistance
 
-The idea is that challenge-response system provides a lightweight, cryptographically secure proof-of-identity for each 
-peer.
-It helps protect the network from:
-- Malicious or rogue nodes,
-- Nodes with invalid or outdated codebases,
-- Sybil attacks or spam connections,
-- Man-in-the-middle or replay attacks.
+### Per-peer stream limits
 
-How it works:
+Every request from a remote peer passes a leaky-bucket limiter before it reaches a handler. Each bucket belongs to one peer on one route: it holds up to *burst* requests and drains at a steady per-minute rate. Requests from the node itself and from loopback are not limited. A limited request gets an error response with code `5001` ([`core/ratelimit/stream.go`](https://github.com/Warp-net/warpnet/blob/main/core/ratelimit/stream.go), [`core/middleware/rate-limiter.go`](https://github.com/Warp-net/warpnet/blob/main/core/middleware/rate-limiter.go)).
 
-1. Challenge Generation:
-    - During discovery discovering, node randomly selects a file and line from its local codebase.
-    - It extracts a substring, generates a `SHA-256` hash of it combined with a random `nonce`.
+| Routes | Burst | Per minute |
+|---|---|---|
+| Other read routes (`/get/`) | 60 | 300 |
+| Other write routes | 30 | 120 |
+| Image and video downloads (incl. chat and sponsored media) | 150 | 600 |
+| Image and video uploads | 10 | 30 |
+| Timeline delivery, moderation results | 200 | 1200 |
+| New chats and chat messages | 60 | 300 |
+| Reports | 10 | 30 |
+| Device pairing, node challenge | 5 | 15 |
+| Any route, when the caller is the bridge gateway | 600 | 6000 |
 
-2. Challenge Request:
-    - The node sends the file location and the `nonce` to the remote peer.
+Peers with a poor [rating](rating.md) get a fraction of each budget: half, a quarter or a tenth depending on their tier, but never less than one request. In addition, libp2p's resource manager caps streams, buffers and memory per peer with its auto-scaled defaults, and a peer may hold at most 2 inbound streams at a time on each video download route.
 
-3. Challenge Response:
-    - The remote peer resolves the same substring on its end, computes the same hash, and signs it using its Ed25519 
-      private key
-    - It returns both the raw hash (`hex-encoded`) and the signature (`base64`).
+### Discovery and connections
 
-4. Verification:
-    - The requesting node compares the received hash with its own.
-    - It then verifies the signature using the peer's public key from the peerstore.
-    - If either fails, the peer is considered untrusted and may be temporarily blocklisted (exponentially).
+- **Discovery.** Peer announcements are charged to the IP address they come from: a burst of 64, refilling at 32 per 10 seconds per IP ([`core/ratelimit/ip.go`](https://github.com/Warp-net/warpnet/blob/main/core/ratelimit/ip.go)).
+- **Connection manager.** The node trims its connections back to 20 once it exceeds 50.
+- **Settings.** The network, discovery and read/write values above can be changed in **Settings → Rate limiting** and take effect after a restart. Routes with a limit of their own keep it. Relay and moderator nodes use the defaults ([`core/ratelimit/settings.go`](https://github.com/Warp-net/warpnet/blob/main/core/ratelimit/settings.go)).
 
----
+### Blocklist
 
-## 5. Deprecated
+When you block a user, your node also puts the node of that user on a permanent peer blocklist. A connection gater then refuses to dial blocked peers and drops inbound connections from them once their identity is known; a sweep every 10 seconds closes any connection that is still open. Unblocking removes the entry. Blocks of bridged Fediverse accounts are not applied at this level, because those accounts live on the shared gateway node ([`core/node/options.go`](https://github.com/Warp-net/warpnet/blob/main/core/node/options.go), [`core/handler/block.go`](https://github.com/Warp-net/warpnet/blob/main/core/handler/block.go)).
 
----
+The storage layer also implements an escalating ban ladder (1 hour, 24 hours, 7 days, permanent) in [`database/node-repo.go`](https://github.com/Warp-net/warpnet/blob/main/database/node-repo.go), but nothing calls it yet. Only manual blocks take effect.
 
-## 6. Built-in Abuse Protection (libp2p Rate Limiting)
+## Process hardening
 
-WarpNet leverages [libp2p’s built-in protection services](https://pkg.go.dev/github.com/libp2p/go-libp2p-p2p/security) to prevent abuse and denial-of-service (DoS):
+The `security` package hardens the process when it starts ([`security/anti-debugger.go`](https://github.com/Warp-net/warpnet/blob/main/security/anti-debugger.go), [`security/anti-debugger_darwin.go`](https://github.com/Warp-net/warpnet/blob/main/security/anti-debugger_darwin.go)):
 
-### Included Protections:
+| Platform | What the node does |
+|---|---|
+| Linux | Unsets `LD_PRELOAD`; disables core dumps (`PR_SET_DUMPABLE=0`); if a tracer is attached and the process command line mentions `gdb` or `lldb`, it stops |
+| macOS | Unsets `DYLD_INSERT_LIBRARIES` and `LD_PRELOAD`; sets the core-dump limit to 0; calls `PT_DENY_ATTACH`, so a debugger cannot attach |
+| Windows | Nothing |
 
-* Connection gating: deny inbound peers based on PSK, IP, PeerID, etc.
-* Stream rate limiting: per protocol, per peer
-* Dial-backoff: exponential cooldown for bad/misbehaving peers
-* Resource management: max open streams, buffers, memory usage per peer
+These measures make it harder to read keys out of a running node; they do not stop an administrator or malware on the same machine.
 
-These are enforced automatically by the libp2p host stack and can be customized via `ResourceManager` interfaces.
+The desktop app also has a **screen lock** (Settings → Screen lock): a 4–8 digit PIN that hides the window while the node keeps running. After 5 wrong PINs the app signs out and asks for the password. It is a convenience lock for the UI, not encryption.
 
----
-## Related Docs
+## Device pairing
 
-- [Noise Protocol Framework Specification](http://www.noiseprotocol.org/)
-- [Challenge–response authentication](https://en.wikipedia.org/wiki/Challenge%E2%80%93response_authentication)
+A phone does not get a copy of your account. It pairs with your node and acts through it ([`core/handler/device.go`](https://github.com/Warp-net/warpnet/blob/main/core/handler/device.go), [`database/aliases-repo.go`](https://github.com/Warp-net/warpnet/blob/main/database/aliases-repo.go)):
 
----
+1. Your node shows a QR code with its node ID, addresses, bootstrap peers, network, your user ID, the PSK and the **session token**. It never contains a private key.
+2. The phone creates its own key pair and dials your node at the pinned node ID. Noise fails if anyone else answers.
+3. The phone sends the pairing request with the token. The node accepts only if the token matches its current session token, then records the phone's peer ID as a paired device.
+4. From then on the phone signs every request with its own key, and the node serves it the private routes.
 
+Limits and revocation:
+
+- Up to 10 devices can be paired at once. A pairing expires if the phone does not refresh it for 72 hours.
+- **Settings → Devices** lists paired phones and removes them. A removed phone loses access at once and cannot pair itself back with the pairing data it still holds.
+- A paired phone may remove only itself, and the device list it can read does not include other devices' tokens.
+- When the node starts it clears its device list, and each new process issues a new session token, so phones must scan the QR code again after a node restart.
+- Pairing attempts are rate-limited to a burst of 5 and 15 per minute per peer.
+- The token is a bearer secret while the node runs: anyone who photographs the QR code can pair a device. Check the device list if in doubt.
+
+The user side of pairing is in [Mobile apps](user-guide/mobile.md).
+
+## Bridge key
+
+To act for you on bridged networks, the [bridge gateway](bridge.md) needs a key of yours. Your node derives a 32-byte **bridge key** from its identity seed with HKDF-SHA256 (info string `warpnet/bridge/v1`) and attaches it, hex-encoded, to every message it sends to the configured gateway peer, and to no other peer. The field travels inside the Noise-encrypted connection; it is not part of the signed bytes.
+
+The gateway turns the bridge key into your Nostr key pair, so it can sign Nostr events in your name. HKDF is one-way, so the bridge key does not reveal your identity key or your password. It is also stable: it changes only if your identity changes, and any gateway that has received it could keep it. See [Bridges](bridge.md#bridge-key).
+
+## Media metadata
+
+Uploaded images are decoded and re-encoded as JPEG (quality 100), which drops the original file's EXIF data such as camera and GPS fields. Warpnet then embeds its own block into the image (EXIF) or video container ([`core/media-meta/upload.go`](https://github.com/Warp-net/warpnet/blob/main/core/media-meta/upload.go)):
+
+- **Contents.** Your node information, your user record, and the hardware (MAC) addresses of all network interfaces of the uploading machine.
+- **Encryption.** AES-256-GCM under an Argon2id key (time 1, 64 MiB, 4 lanes) derived from a single-use random password drawn from a deliberately small space of 110,000,000,000 values (about 2^36.7). The password is wiped after use and never stored. Salt and nonce are random and travel with the file.
+- **Signature.** The block is signed with your node key over a hash of the file, so it can be checked against the uploader.
+
+This is weak by design. Ordinary users cannot read the block, but an adversary willing to spend serious computation can brute-force it and recover the node, user and hardware addresses behind any image or video you publish. The code estimates the search at roughly 12 days on a 1000-core cluster. Treat that as an order of magnitude. If this trade-off does not fit your threat model, do not publish media through Warpnet.
+
+## What Warpnet does not protect against
+
+- **Network metadata.** Peers you connect to see your IP address. Relays see which peers talk to each other, when and how much, but not the content. Your ISP sees that you connect to IP addresses, though not which protocol. See [Network](network.md#who-sees-what).
+- **Copies of public content.** Posts are copied to your followers' nodes. Deleting a post or having it moderated does not remove those copies.
+- **The other end of a chat.** Direct messages are encrypted in transit and stored on both your node and the other person's node. Warpnet cannot control what the other node does with its copy.
+- **A weak password.** Someone who copies your database files can try passwords offline. Argon2id slows this down; it does not stop it.
+- **A compromised computer.** Malware or an administrator on the machine running your node can read what the node reads.
+- **Modified software.** Peers can run modified builds, ignore moderation verdicts on their own screens, and create new identities at no cost.
+- **The PSK as a secret.** It is public by design.
+- **Media metadata.** Recoverable by a well-resourced adversary, as described [above](#media-metadata).
+- **Bridged networks.** Whatever crosses the bridge gateway is in plain text on the gateway and stored by the servers of the other network. The gateway also makes public posts readable on the Fediverse and publishes them to Nostr relays. See [Bridges](bridge.md#privacy-and-trust).
+- **An exposed dashboard.** A remote node listens on all interfaces unless you set `--node.server.host`.
+
+## Reporting a vulnerability
+
+If you find a security problem, email **contact@warpnet.site** with a description, the affected version and steps to reproduce. Please do not open a public issue for a vulnerability that can be exploited until it is fixed. Other bugs go to [GitHub issues](https://github.com/Warp-net/warpnet/issues); questions and discussion to [Telegram](https://t.me/warpnetdev).
+
+## See also
+
+- [Network](network.md): transport stack, camouflage, NAT traversal, who sees what
+- [Storage](storage.md): datastore layout and encryption at rest
+- [Moderation](moderation.md): signed votes and verdicts
+- [Bridges](bridge.md): the gateway and the bridge key
+- [Rating](rating.md): how peers are rated and slowed down

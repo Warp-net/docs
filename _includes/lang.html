@@ -1,0 +1,23 @@
+{%- comment -%}
+Sets: lang, t (UI strings), prefix ("" or "/ru"), alt_lang, alt_url, alt_exists.
+The Russian twin of /x.html is /ru/x.html.
+{%- endcomment -%}
+{%- assign lang = page.lang | default: site.lang -%}
+{%- assign t = site.data.i18n[lang] -%}
+{%- if lang == "ru" -%}
+  {%- assign prefix = "/ru" -%}
+  {%- assign alt_lang = "en" -%}
+  {%- assign alt_url = page.url | remove_first: "/ru" -%}
+  {%- if alt_url == "" -%}{%- assign alt_url = "/" -%}{%- endif -%}
+{%- else -%}
+  {%- assign prefix = "" -%}
+  {%- assign alt_lang = "ru" -%}
+  {%- assign alt_url = "/ru" | append: page.url -%}
+{%- endif -%}
+{%- assign alt_page = site.pages | where: "url", alt_url | first -%}
+{%- if alt_page -%}
+  {%- assign alt_exists = true -%}
+{%- else -%}
+  {%- assign alt_exists = false -%}
+  {%- if alt_lang == "ru" -%}{%- assign alt_url = "/ru/" -%}{%- else -%}{%- assign alt_url = "/" -%}{%- endif -%}
+{%- endif -%}
