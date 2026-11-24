@@ -1,0 +1,16 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1c1814">
+<link rel="icon" type="image/png" href="{{ site.favicon }}">
+<link rel="apple-touch-icon" href="{{ site.logo }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono:ital,wght@0,400;0,700;1,400&display=swap">
+<link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
+{% seo %}
+{%- include lang.html %}
+{%- if alt_exists %}
+<link rel="alternate" hreflang="{{ lang }}" href="{{ page.url | absolute_url }}">
+<link rel="alternate" hreflang="{{ alt_lang }}" href="{{ alt_url | absolute_url }}">
+{%- endif %}
+<script defer src="{{ '/assets/js/docs.js' | relative_url }}"></script>

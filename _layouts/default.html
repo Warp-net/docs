@@ -1,0 +1,13 @@
+<!doctype html>
+{%- include lang.html %}
+<html lang="{{ lang }}">
+<head>
+{% include head.html %}
+</head>
+<body class="{{ page.layout }}-page" data-copy="{{ t.copy }}" data-copied="{{ t.copied }}" data-anchor="{{ t.anchor }}">
+<a class="skip-link" href="#content">{{ t.skip }}</a>
+<main id="content" class="site-main">
+{{ content }}
+</main>
+</body>
+</html>

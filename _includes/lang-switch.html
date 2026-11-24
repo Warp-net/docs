@@ -1,0 +1,10 @@
+{%- include lang.html -%}
+<div class="lang-switch" role="group" aria-label="{{ t.language }}">
+  {%- if lang == "en" %}
+  <span class="lang-switch__item is-active" aria-current="true">EN</span>
+  <a class="lang-switch__item" href="{{ alt_url | relative_url }}" hreflang="ru" lang="ru" title="Русский">RU</a>
+  {%- else %}
+  <a class="lang-switch__item" href="{{ alt_url | relative_url }}" hreflang="en" lang="en" title="English">EN</a>
+  <span class="lang-switch__item is-active" aria-current="true">RU</span>
+  {%- endif %}
+</div>

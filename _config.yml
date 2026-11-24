@@ -1,9 +1,56 @@
-title: WarpNet Docs
-description: Documentation for WarpNet project
-theme: minima
+title: Warpnet Docs
+description: Documentation for Warpnet, a fully decentralized peer-to-peer social network.
+lang: en
+
+# GitHub Pages project site. With a custom domain (CNAME) set baseurl to "".
+url: https://warp-net.github.io
+baseurl: /docs
+
 repository: Warp-net/docs
-organization: Warp-net
-github: [metadata]
+docs_branch: main
+code_repository: https://github.com/Warp-net/warpnet
+
+logo: https://assets.zyrosite.com/cdn-cgi/image/format=auto,w=375,fit=crop/jf7Nx56ebRHXV9M1/d-d-ZsEoNGwVDET9oLy4.png
+favicon: https://assets.zyrosite.com/cdn-cgi/image/format=auto,w=32,h=32,fit=crop,f=png/jf7Nx56ebRHXV9M1/d-d-ZsEoNGwVDET9oLy4.png
+
+
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+  auto_ids: true
+
 plugins:
-  - jekyll-feed
   - jekyll-seo-tag
+  - jekyll-sitemap
+  - jekyll-redirect-from
+  - jekyll-relative-links
+  - jekyll-optional-front-matter
+  - jekyll-titles-from-headings
+
+relative_links:
+  enabled: true
+  collections: false
+
+titles_from_headings:
+  strip_title: false
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: doc
+  - scope:
+      path: "ru"
+    values:
+      lang: ru
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - .bundle
+  - .jekyll-cache
+  - README.md

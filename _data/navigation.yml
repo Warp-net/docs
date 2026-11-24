@@ -1,0 +1,99 @@
+# url is the English page; the Russian twin lives under /ru with the same path.
+- title: Get started
+  title_ru: Начало работы
+  items:
+    - title: User guide
+      title_ru: Руководство пользователя
+      url: /user-guide/
+    - title: Mobile apps
+      title_ru: Мобильные приложения
+      url: /user-guide/mobile.html
+    - title: Running a node
+      title_ru: Запуск узла
+      url: /user-guide/running-a-node.html
+    - title: Backup and restore
+      title_ru: Резервное копирование
+      url: /user-guide/backup-and-restore.html
+    - title: FAQ
+      title_ru: Вопросы и ответы
+      url: /faq.html
+
+- title: How it works
+  title_ru: Как это устроено
+  items:
+    - title: Architecture
+      title_ru: Архитектура
+      url: /architecture.html
+    - title: Member node
+      title_ru: Member-узел
+      url: /member-node-architecture.html
+    - title: Relay node
+      title_ru: Relay-узел
+      url: /relay-node-architecture.html
+    - title: Protocol
+      title_ru: Протокол
+      url: /protocol.html
+    - title: Discovery
+      title_ru: Обнаружение пиров
+      url: /discovery.html
+    - title: Network and transport
+      title_ru: Сеть и транспорт
+      url: /network.html
+    - title: Synchronization
+      title_ru: Синхронизация
+      url: /synchronization.html
+    - title: Storage
+      title_ru: Хранилище
+      url: /storage.html
+
+- title: Trust and safety
+  title_ru: Доверие и безопасность
+  items:
+    - title: Security
+      title_ru: Безопасность
+      url: /security.html
+    - title: Moderation
+      title_ru: Модерация
+      url: /moderation.html
+    - title: Node rating
+      title_ru: Рейтинг узла
+      url: /rating.html
+    - title: Trust circle
+      title_ru: Круг доверия
+      url: /trust-circle.html
+
+- title: Ecosystem
+  title_ru: Экосистема
+  items:
+    - title: Bridges
+      title_ru: Мосты
+      url: /bridge.html
+
+- title: Developers
+  title_ru: Разработчикам
+  items:
+    - title: Developer guide
+      title_ru: Руководство разработчика
+      url: /developer-guide/
+    - title: Clients
+      title_ru: Клиенты
+      url: /developer-guide/clients.html
+    - title: API reference
+      title_ru: Справочник API
+      url: /developer-guide/api.html
+    - title: Stream API
+      title_ru: Stream API
+      url: /developer-guide/stream-API.html
+    - title: WebSocket API
+      title_ru: WebSocket API
+      url: /developer-guide/ws-API.html
+
+- title: Project
+  title_ru: Проект
+  items:
+    - title: How to help
+      title_ru: Как помочь
+      url: /HOW-TO-HELP.html
+    - title: Legal
+      title_ru: Правовая информация
+      url: /legal/

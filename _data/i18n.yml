@@ -1,0 +1,29 @@
+en:
+  name: English
+  short: EN
+  brand: Warpnet Docs
+  skip: Skip to content
+  menu: Docs menu
+  toc: On this page
+  previous: Previous
+  next: Next
+  edit: Edit this page on GitHub
+  copy: Copy
+  copied: Copied
+  anchor: Link to this section
+  language: Language
+
+ru:
+  name: Русский
+  short: RU
+  brand: Документация Warpnet
+  skip: Перейти к содержимому
+  menu: Меню документации
+  toc: На этой странице
+  previous: Назад
+  next: Далее
+  edit: Редактировать на GitHub
+  copy: Копировать
+  copied: Скопировано
+  anchor: Ссылка на этот раздел
+  language: Язык
