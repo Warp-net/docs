@@ -6,6 +6,6 @@ description: Official documentation for Warpnet, a fully decentralized peer-to-p
 
 # Documentation
 
-Welcome to the official documentation for **Warpnet**, a fully decentralized peer-to-peer social network designed for privacy, autonomy, and resilience. Warpnet does not rely on centralized servers: every user runs a node, all user data is stored locally, and nodes talk to each other directly over encrypted connections.
+Welcome to the official documentation for **Warpnet**, a peer-to-peer social network with no central servers. Every account lives on its owner's node, the desktop app or a headless server node, which keeps the account's data in an encrypted local database and talks to other nodes over encrypted connections. Phones pair with a node and act through it.
 
 This documentation covers everything you need to use Warpnet, understand how it works, run your own nodes, and contribute to the project.

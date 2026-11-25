@@ -1,22 +1,22 @@
 ---
 title: Local Storage
-description: Where a Warpnet node keeps its data, how the database is encrypted with a key derived from your password, how keys are laid out, and what expires on its own.
+description: Where a Warpnet node keeps its data, how the database is encrypted with a key derived from your login and password, how keys are laid out, and what expires on its own.
 ---
 
 # Local Storage
 
-Every member node keeps its owner's data in an encrypted database on the owner's own disk: posts, profile, follows, chats, media, settings and the node's share of the replicated stores. This page covers where that database lives, how it is encrypted, how keys are organised, what is deleted automatically, the outbox for offline peers, and the in-memory mode used by test nodes. The first sections are for users and operators; the rest is for developers.
+Every member node keeps its owner's data in an encrypted database on the owner's own disk: posts, profile, follows, chats, media, settings and the node's share of the replicated stores. This page covers where that database lives, how it is encrypted, how keys are organised, what is deleted automatically, the outbox for offline peers, and the in-memory database of the echo node. The first sections are for users and operators; the rest is for developers.
 
 ## Overview
 
 | Topic | Answer |
 |---|---|
 | Engine | [BadgerDB](https://github.com/dgraph-io/badger) v4, an embedded key-value store |
-| Encryption | Always on, with a key derived from your username and password |
-| Location | `~/.warpdata` on Linux, macOS and Android; `%LOCALAPPDATA%\warpdata` on Windows |
+| Encryption | Always on, with a key derived from your login and password |
+| Location | `~/.warpdata` on Linux and macOS; `%LOCALAPPDATA%\warpdata` on Windows |
 | One database per | Network (`warpnet`, `testnet`) and database directory name |
 | Who stores data on disk | Member nodes: the desktop app and the remote node |
-| Who keeps its data in memory only | Echo nodes, relays and moderators |
+| Who keeps its data in memory only | The echo node, relays and moderators |
 | Backup or export command | None (see [Backup](#backup-and-export)) |
 
 ## Where data lives
@@ -25,11 +25,11 @@ The application directory depends on the operating system ([`config/config.go`](
 
 | OS | Application directory |
 |---|---|
-| Linux, macOS, Android | `$HOME/.warpdata` |
+| Linux, macOS | `$HOME/.warpdata` |
+| Linux, Snap package | `~/snap/warpnet/current/.warpdata` (Snap sets `$HOME` to the snap's own data directory) |
 | Windows | `%LOCALAPPDATA%\warpdata` (the node exits if the variable is missing) |
-| Anything else | Not supported; the node exits |
 
-Inside it, the database path is built from three parts, and the database adds a schema-version folder:
+Inside it, the database path is built from the network and the database directory name, and the database adds a `v0` folder:
 
 ```text
 <application dir>/<network>/<database dir>/v0
@@ -39,7 +39,7 @@ With the defaults (`--node.network=warpnet`, `--database.dir=storage`) that is `
 
 ```text
 ~/.warpdata/
-├── fontconfig.conf        Linux desktop app only (font settings for the window)
+├── fontconfig.conf        Linux desktop app outside Snap (font settings for the window)
 ├── warpnet/               main network
 │   ├── ws-noise.key       remote node only
 │   └── storage/
@@ -56,11 +56,11 @@ With the defaults (`--node.network=warpnet`, `--database.dir=storage`) that is `
 | Network | `--node.network` | `NODE_NETWORK` | `warpnet` (`mainnet` is accepted as an alias) |
 | Database directory name | `--database.dir` | `DATABASE_DIR` | `storage` |
 
-There is no configuration file: settings come from flags and environment variables. Running on testnet, or with another `--database.dir`, gives a completely separate database. This is how several nodes can run on one machine.
+There is no configuration file: settings come from flags and environment variables. Running on testnet, or with another `--database.dir`, gives a completely separate database.
 
 `ws-noise.key` is the remote node's static key for the encrypted dashboard channel. It is a plain file readable only by its owner (mode `0600`) and sits outside the encrypted database.
 
-In the project's Docker deployments the node runs as `root`, so the data is under `/root/.warpdata`; mount a volume there to keep it across container restarts.
+In the project's Docker images the node runs as `root`, so the data is under `/root/.warpdata`; mount a volume there to keep it across container restarts.
 
 > **Warning:** BadgerDB locks its directory, and the desktop app allows only one running instance. Two nodes cannot share one database directory.
 {: .warning }
@@ -71,7 +71,7 @@ In the project's Docker deployments the node runs as `root`, so the data is unde
 |---|---|---|
 | Desktop app (member) | Encrypted BadgerDB on disk | Stats and rating, inside the same database |
 | Remote node (member) | Encrypted BadgerDB on disk | Stats and rating, inside the same database |
-| Echo node (member, test bot) | BadgerDB **in memory** | Stats and rating, in memory |
+| Echo node (member, test bot) | Encrypted BadgerDB **in memory** | Stats and rating, in memory |
 | Relay | No BadgerDB; in-memory datastores for the peerstore and DHT | Rating only, in memory |
 | Moderator | No BadgerDB; in-memory datastores | Rating only, in memory |
 
@@ -82,41 +82,39 @@ Relays and moderators lose their state on restart and get their rating view back
 The database is opened only after login, with a key derived from your credentials ([`security/kdf.go`](https://github.com/Warp-net/warpnet/blob/main/security/kdf.go), [`security/aes.go`](https://github.com/Warp-net/warpnet/blob/main/security/aes.go)):
 
 ```text
-salt = SHA-256("warpnet/kdf/v1/database-key" || 0x00 || username)
+salt = SHA-256("warpnet/kdf/v1/database-key" || 0x00 || login)
 key  = Argon2id(password, salt, time=1, memory=64 MiB, threads=4, length=32 bytes)
 ```
 
 - The 32-byte key is passed to BadgerDB as its encryption key and is never written to disk.
-- BadgerDB encrypts its files with AES (a 32-byte key selects AES-256) in CTR mode. It encrypts data with internal data keys, which are themselves protected by this key and rotated every 10 days by default.
-- A wrong username or password fails to open the database and is reported as "wrong username or password".
-- The database key depends only on username and password. Networks are kept apart by directory, not by key.
-- Your node's identity key is derived separately, from username, password **and** network, with its own context string. See [Security](security.md).
+- BadgerDB encrypts its files with AES (a 32-byte key selects AES-256) in CTR mode. It encrypts data with internal data keys, which are themselves protected by this key and rotated every 10 days (BadgerDB's default).
+- A wrong login or password fails to open the database and is reported as "wrong username or password".
+- The database key depends only on login and password. Networks are kept apart by directory, not by key.
+- Your node's identity key is derived separately, from login, password **and** network, with its own context string. See [Security](security.md).
 
-There is no password recovery and no password change. If you forget your password, the database cannot be decrypted. Because identity is derived from the same credentials, logging in with them on another machine gives the same node ID, but the data itself is only in the old database.
+There is no password recovery and no way to change the login or password. If you forget either, the database cannot be decrypted. Logging in with the same login and password on another machine gives the same node ID, but the data itself is only in the old database.
 
 ## Engine settings
 
 From [`database/local-store/db.go`](https://github.com/Warp-net/warpnet/blob/main/database/local-store/db.go):
 
-| Setting | On disk | In memory |
+| Setting | On disk | In memory (echo node) |
 |---|---|---|
 | Synchronous writes | off | off |
-| Compression | ZSTD | none |
+| Compression | ZSTD | Snappy (BadgerDB's default) |
 | Index cache | 256 MiB | 256 MiB |
 | Block cache | 512 MiB | 512 MiB |
 | Compactors | 4 | 2 |
-| Value-log garbage collection | at start, then every hour | not run |
+| Value-log garbage collection | at login, then every hour | not run |
 | Directory watcher | every second | not run |
 
 With synchronous writes off, BadgerDB does not force each write to disk. A power loss or OS crash can lose the most recent writes.
 
-A BadgerDB sequence under the key `/SEQUENCE` hands out monotonic numeric IDs.
-
 ## Lifecycle
 
 1. **Start.** The node prepares the database but does not open it yet. It checks whether `run.lock` exists in the database folder; if not, this is a first run.
-2. **Login.** The key is derived and the database opened. On the first successful login `run.lock` is written.
-3. **Running.** Value-log garbage collection runs once at start and then every hour, repeating until BadgerDB reports nothing left to rewrite. Every second the node checks that `run.lock` is still there; if the folder has been emptied while the node runs, the node stops with an error instead of carrying on with a blank database.
+2. **Login.** The key is derived and the database opened. The first time it opens, `run.lock` is written.
+3. **Running.** Value-log garbage collection runs once when the database opens and then every hour, repeating while BadgerDB finds something to rewrite (discard ratio 0.5, a one-second pause between rounds). Every second the node checks that `run.lock` is still there; if the folder has been emptied while the node runs, the node crashes with `database: folder was emptied` instead of carrying on with a blank database.
 4. **Logout or shutdown.** The database is closed. Logging in again reopens it.
 
 ## Key layout
@@ -127,8 +125,8 @@ BadgerDB is a flat, byte-sorted key-value store. Warpnet builds path-like keys w
 /<NAMESPACE>[/<SUBPREFIX>...]/<root id>/<range>/<id>[/<id>...]
 ```
 
-- **Namespace:** upper-case, one per repository, for example `/TWEETS`.
-- **Root ID:** usually the owning user's ID.
+- **Namespace:** upper-case, one or more per repository, for example `/TWEETS`.
+- **Root ID:** what the entries are grouped by: a user ID, a tweet ID (replies, counters), a destination node ID (outbox) or a network root (users).
 - **Range:** the literal `fixed`, the literal `none`, or a number.
 - **IDs:** ULIDs, hashes or peer IDs.
 
@@ -143,44 +141,58 @@ Most listed entities are written twice. A post, for example:
 
 (The number is the reversed timestamp of a post made at 00:00 UTC on 24 November 2026.)
 
-The **fixed** key finds an item by ID. The **sortable** key carries a reversed timestamp, `MaxInt64 - unixMillis`, zero-padded to 19 digits, so a plain prefix scan returns the newest items first. Scans refuse a prefix containing `fixed` and skip any `fixed` key they meet, so listings never return an item twice.
+The **fixed** key finds an item by ID. The **sortable** key carries a reversed timestamp, `MaxInt64 - unixMillis`, zero-padded to 19 digits, so a plain prefix scan returns the newest items first. Scans refuse a prefix containing `fixed` and skip any `fixed` key they meet, so listings never return an item twice. A reply is stored as a post under its parent post's ID instead of a user ID.
+
+### Users
+
+User rows are grouped by network ([`database/user-repo.go`](https://github.com/Warp-net/warpnet/blob/main/database/user-repo.go)):
+
+```text
+/USERS/USER/None/fixed/{userId}        -> the sortable key below
+/USERS/USER/{root}/{rtt}/{userId}      -> the profile as JSON
+/USERS/NODE/{nodeId}                   -> the sortable key of the user on that node
+```
+
+- `{root}` is `warpnet/`, `mastodon/`, `threads/` or `nostr/`: the user's network name with a trailing slash, so a scan of one network never reaches another whose name starts the same way. A row is stored as, for example, `/USERS/USER/warpnet//125000/{userId}`. A user without a network tag, or from any other network, is stored under `None`.
+- `{rtt}` is the round-trip time to the user's node in milliseconds when the row was written; 125000 when none was measured. The owner's own row uses the largest 64-bit value.
+- When an update changes a user's network, the row moves to the new root in the same transaction.
+- A user ID stays bound to the first node ID stored for it; an update that names another node is refused.
+- Who-to-follow reads the root of the requested network first, then `None`, skipping offline users and users of other networks, and stops after 5,000 rows per request.
 
 ### Listing
 
-Prefix scans are paginated. A page holds 20 items by default and at most 1,000. The scan returns an opaque cursor for the next page, or the literal `end` when the prefix is exhausted. Large batch writes that exceed one transaction are committed and resumed automatically.
+Prefix scans are paginated. A page holds 20 items by default and at most 1,000. The scan returns an opaque cursor for the next page, or the literal `end` when the prefix is exhausted.
 
 ## Namespaces
 
 | Prefix | Contents |
 |---|---|
-| `/AUTH` | The owner record (user ID, login, creation time) |
-| `/USERS` | Profiles: the owner's and every user this node has seen |
-| `/TWEETS` | Posts, edits, reply and retweet counters, retweeters, viewers, view counters |
+| `/AUTH` | The owner record (user ID, node ID, login, creation time) |
+| `/USERS` | Profiles: the owner's and every user this node has seen, plus an index by node ID |
+| `/TWEETS` | Posts and replies, edits, post, reply, retweet and view counters, retweeters, viewers, posts blocked by a moderation verdict |
 | `/TIMELINE` | The owner's home timeline |
-| `/REACTIONS` | Reaction totals, per-emoji counts, who reacted |
-| `/POLLS` | Poll vote counters and who voted for what |
-| `/FOLLOW` | Followings, followers, counts, follow requests |
-| `/SUBSCRIPTIONS` | "Notify me about new posts from this user" |
+| `/REACTIONS` | Reaction totals, per-emoji counts, who reacted, the posts each user reacted to |
+| `/POLLS` | Per-option vote counters and each voter's choice |
+| `/FOLLOW` | Followings, followers, their counts |
 | `/BLOCKS`, `/MUTES` | Users the owner blocked or muted |
 | `/FILTERS` | The owner's content filters |
 | `/BOOKMARKS` | Bookmarked posts |
 | `/NOTIFICATIONS` | Notifications |
 | `/CHATS`, `/MESSAGES` | Direct chats and their messages |
-| `/MEDIA` | Images and videos of posts |
+| `/MEDIA` | Images and videos |
 | `/CHATMEDIA` | Chat attachments |
-| `/SPONSOREDMEDIA` | Per-buyer marked copies of paid media and image hashes of posts |
-| `/ORDERS`, `/ORDERPAYERS` | Orders for paid posts and the payer addresses bound to them |
+| `/SPONSOREDMEDIA` | Per-buyer marked copies of paid media and image hashes of paid posts |
+| `/ORDERS`, `/ORDERPAYERS` | Orders for paid posts and the buyer node bound to each payer address |
 | `/WALLETS` | Public wallet addresses per chain and user |
 | `/SETTINGS` | Notification settings and node settings (gateway, rate limits, sponsored content, network, wallet) |
 | `/ALIASES` | Paired mobile devices |
 | `/OUTBOX` | Writes waiting for an offline peer (see below) |
-| `/NODES` | The libp2p peerstore, DHT records and the peer blocklist |
+| `/NODES` | The libp2p peerstore, DHT records and the peer blocklist (nodes of users the owner blocked) |
 | `/STATS/DAYS` | Replica of the stats CRDT |
 | `/RATING/DAYS` | Replica of the rating CRDT |
-| `/SEQUENCE` | BadgerDB's ID sequence |
-| `/ECHO_SEEN` | Echo test nodes only |
+| `/ECHO_SEEN` | Echo node only: events it has already answered |
 
-The repositories are in [`database/`](https://github.com/Warp-net/warpnet/tree/main/database), one file per namespace.
+The repositories are in [`database/`](https://github.com/Warp-net/warpnet/tree/main/database), one file per area.
 
 ## What expires on its own
 
@@ -189,19 +201,18 @@ Some entries are written with a time-to-live and BadgerDB drops them automatical
 | Data | Kept for |
 |---|---|
 | Notifications | 24 hours |
-| Paired devices | 72 hours |
+| Paired devices | 72 hours, renewed each time the device pairs again; all pairings are revoked when the node starts |
 | Cached images and videos from other users | 7 days |
 | Posts fetched from another node while browsing its profile | 30 days |
 | Outbox messages | 30 days |
-| Peer blocklist entries | 1 hour, 24 hours, 7 days, then permanent, escalating on each repeat |
 
-Your own content (posts, chats, timeline, settings, bookmarks, follows) has no expiry.
+Your own content (posts, chats, timeline, settings, bookmarks, follows) has no expiry. A blocked user's node stays on the peer blocklist until the owner unblocks the user.
 
 The replicated stores clean up separately: counters of posts older than 30 days and rating records past their retention are dropped day by day, see [Synchronization](synchronization.md#day-dags).
 
 ## Outbox
 
-When a member node sends a write to another node (a follow, a reply to someone's thread, and similar non-read requests), the write is first stored in the outbox and then sent ([`core/stream/outbox.go`](https://github.com/Warp-net/warpnet/blob/main/core/stream/outbox.go), [`database/outbox-repo.go`](https://github.com/Warp-net/warpnet/blob/main/database/outbox-repo.go)).
+When a member node sends a write to another node (a follow, a reply to someone's post, a reaction, a chat message and any other route that is not a read), the write is first stored in the outbox and then sent ([`core/stream/outbox.go`](https://github.com/Warp-net/warpnet/blob/main/core/stream/outbox.go), [`database/outbox-repo.go`](https://github.com/Warp-net/warpnet/blob/main/database/outbox-repo.go)).
 
 ```text
 /OUTBOX/{destinationNodeId}/{messageId}   -> route, body, timestamp (JSON)
@@ -221,37 +232,32 @@ Images and videos are stored inside BadgerDB as base64 strings, under `/MEDIA/IM
 
 There is no separate file store for media. Another user's image is fetched from that user's node over a stream when it is viewed, checked, and then cached locally.
 
-## Versions and migration
-
-- The `v0` folder is a schema-version guard. A future breaking change would move to a new folder and start a clean database rather than migrate in place. Only `v0` exists today.
-- Inside `v0`, changes are handled by switching prefixes. When the replicated stores moved to day DAGs, they got new prefixes (`/STATS/DAYS`, `/RATING/DAYS`); the old data under `/CRDT` and `/RATING` stays on disk and is not read.
-
 ## Backup and export
 
 There is no export, import or backup command for the database. What exists:
 
-- The database directory can be copied while the node is **stopped**. The copy can only be opened with the same username and password.
-- Identity is reproducible: the same username, password and network give the same node ID on any machine, even without the old data.
+- The database directory can be copied while the node is **stopped**. The copy can only be opened with the same login and password.
+- The node ID is reproducible: the same login, password and network give the same node ID on any machine. A new, empty database still starts a new profile with a new user ID.
 - The wallet seed is not stored in the database either: it is derived from your identity key, network and login, so the same credentials give the same wallet.
 
 See [Backup and restore](user-guide/backup-and-restore.md) for the user-facing procedure.
 
-## In-memory mode
+## In-memory database of the echo node
 
-`DefaultOptions().WithInMemory(true)` runs BadgerDB entirely in memory. The echo test node uses it ([`cmd/node/member/echo-member.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/echo-member.go)). In this mode:
+The echo test node ([`cmd/node/member/echo-member.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/echo-member.go)) opens BadgerDB with `local_store.DefaultOptions().WithInMemory(true)`. In this mode:
 
 - nothing is written to disk and everything is lost on exit;
 - no `run.lock` is written, and neither garbage collection nor the directory watcher runs;
-- encryption is still configured with a derived key, as on disk.
+- encryption is still configured with a key derived from the echo node's fixed login and password.
 
-The echo node opens its database before login so it can seed its fixed owner; opening an already running database is a no-op, so the seeded data is not lost.
+The echo node opens its database before login so it can seed its fixed owner; opening a database that is already running is a no-op, so the seeded data is kept.
 
 ## Packages
 
 | Package | Role |
 |---|---|
 | [`database/local-store`](https://github.com/Warp-net/warpnet/tree/main/database/local-store) | The BadgerDB wrapper: open with a derived key, transactions, counters, paginated scans, TTL, GC, the prefix builder |
-| [`database`](https://github.com/Warp-net/warpnet/tree/main/database) | One repository per namespace, plus `NodeRepo`, which adapts the store to the `go-datastore` interface for libp2p and the CRDT stores |
+| [`database`](https://github.com/Warp-net/warpnet/tree/main/database) | The repositories, plus `NodeRepo`, which adapts the store to the `go-datastore` interface for libp2p and the CRDT stores |
 | [`database/datastore`](https://github.com/Warp-net/warpnet/tree/main/database/datastore) | Thin aliases over `go-datastore` and the IPFS blockstore helpers used by the CRDT stores |
 
 ## See also

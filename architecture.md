@@ -1,11 +1,11 @@
 ---
 title: Architecture
-description: How Warpnet fits together - node roles, clients, identity, networks, the main subsystems and the path a post takes from its author to followers.
+description: How Warpnet fits together - node types, bootstrap nodes, clients, identity, networks, the main subsystems and the path a post takes from its author to followers.
 ---
 
 # Architecture
 
-Warpnet is a peer-to-peer social network with no server tier. This page is the map: which kinds of nodes exist, how the apps reach your node, where your identity comes from, how networks are kept apart, and what happens to a post after you publish it. Each section links to a page with the details. It is written for curious users first and for developers second.
+Warpnet is a peer-to-peer social network with no server tier. This page is the map: which kinds of nodes exist, how a node finds its first peers, how the apps reach your node, where your identity comes from, how networks are kept apart, and what happens to a post after you publish it. Each section links to a page with the details. It is written for curious users first and for developers second.
 
 ## No server tier
 
@@ -26,22 +26,38 @@ The desktop program is a single executable. The web UI is compiled into it ([`em
 
 ## Node roles
 
-Warpnet defines exactly three node roles. Each role reports its type in the node information it serves on `/public/get/info/0.0.0` ([`core/warpnet/warpnet.go`](https://github.com/Warp-net/warpnet/blob/main/core/warpnet/warpnet.go)).
+Warpnet has three node types. Each reports its type in the node information it serves on `/public/get/info/0.0.0` ([`core/warpnet/warpnet.go`](https://github.com/Warp-net/warpnet/blob/main/core/warpnet/warpnet.go)).
 
-| Role | Entry point | What it does | Stores |
+| Type | Entry point | What it does | Stores |
 |---|---|---|---|
 | **member** | [`cmd/node/member`](https://github.com/Warp-net/warpnet/tree/main/cmd/node/member) | The user's node: holds the account, serves the UI and paired phones, publishes and receives posts. | Encrypted local database |
-| **relay** | [`cmd/node/relay`](https://github.com/Warp-net/warpnet/tree/main/cmd/node/relay) | Entry point to the network: DHT bootstrap peer and circuit relay for nodes behind NAT. | Nothing on disk |
+| **relay** | [`cmd/node/relay`](https://github.com/Warp-net/warpnet/tree/main/cmd/node/relay) | Headless infrastructure node on a public address: DHT server, circuit relay for nodes behind NAT, gossip forwarding, peer rating. | Nothing on disk |
 | **moderator** | [`cmd/node/moderator`](https://github.com/Warp-net/warpnet/tree/main/cmd/node/moderator) | Runs a local LLM (Llama Guard 3) and votes on reported content with other moderators. | Nothing on disk; it only reads its model file |
 
-Some names you may meet elsewhere:
+**Remote** and **echo** are build flavours of the member type, not separate types: a headless member that serves the UI to a browser, and a test bot. See [Member node architecture](member-node-architecture.md).
 
-- **Bootstrap node** is the old name of the relay role. For compatibility a relay still sends `owner_id: "bootstrap"` in its node information, and nodes recognise a relay by that marker as well as by `type: "relay"`.
-- **Remote** and **echo** are build flavours of the member role, not separate roles: a headless member that serves the UI to a browser, and a test bot. See [Member node architecture](member-node-architecture.md).
-- There is no "business node" role in the code.
-- The **bridge gateway** that connects Warpnet to Mastodon and the Fediverse, Threads and Nostr lives in its own repository and joins the network as an ordinary libp2p peer. See [Bridges](bridge.md).
+The **bridge gateway** that connects Warpnet to Mastodon and the Fediverse, Threads and Nostr lives in its own repository and joins the network as an ordinary libp2p peer. See [Bridges](bridge.md).
 
-All three roles are built on the same core ([`core/node`](https://github.com/Warp-net/warpnet/tree/main/core/node)): the same transport stack, connection limits, hole punching and relay service. They differ in which routes they register and what they keep.
+All three types are built on the same core ([`core/node`](https://github.com/Warp-net/warpnet/tree/main/core/node)): the same transport stack, connection limits, hole punching and circuit relay v2 service. They differ in which routes they register and what they keep.
+
+### Bootstrap nodes
+
+"Bootstrap node" is a position, not a node type: it is any address in a node's **bootstrap list**. A node uses its list as:
+
+- the first peers it connects to, from which its DHT routing table is filled;
+- the only relays it reserves circuit relay slots on when it is behind NAT (libp2p AutoRelay with static relays, [`core/warpnet/options.go`](https://github.com/Warp-net/warpnet/blob/main/core/warpnet/options.go));
+- on a member node, also the peers with the highest connection priority and the list it hands to paired phones in the pairing QR code.
+
+Where the list comes from:
+
+| Node | Source |
+|---|---|
+| member | the bootstrap list saved in the network settings of its database; if that is empty, the configuration |
+| relay, moderator | the configuration |
+
+In the configuration, `--node.bootstrap` (or `NODE_BOOTSTRAP`), a comma-separated list of multiaddresses, replaces the built-in list. Without it, the networks `warpnet` and `testnet` use built-in lists ([`config/config.go`](https://github.com/Warp-net/warpnet/blob/main/config/config.go)); any other network has none.
+
+The built-in lists point at three relay nodes run by the project. So the default bootstrap nodes happen to run the relay binary, but the two ideas are separate: any reachable node can be in someone's bootstrap list, and a relay serves as a circuit relay only to the nodes that list it. See [Relay node architecture](relay-node-architecture.md).
 
 ## Clients
 
@@ -62,7 +78,7 @@ flowchart LR
   B[Browser] -->|WebSocket + Noise| M
   P[Android / iOS app] -->|libp2p stream| M
   M <-->|libp2p| O[Other member nodes]
-  M -->|bootstrap, DHT, circuit relay| R[Relay nodes]
+  M -->|bootstrap, DHT, circuit relay| R[Nodes in the bootstrap list]
   M -->|reports over gossip| X[Moderator nodes]
 ```
 
@@ -75,26 +91,27 @@ The developer view of these transports is in [Clients](developer-guide/clients.m
 
 ## Identity
 
-Every node has an **Ed25519** key pair; no other key type is used. The public key is short enough to be embedded in the libp2p **peer ID** (node ID), so a receiver recovers the sender's public key from the peer ID alone and verifies signatures with it.
+Every node identity is an **Ed25519** key pair. The public key is short enough to be embedded in the libp2p **peer ID** (node ID), so a receiver recovers the sender's public key from the peer ID alone and verifies signatures with it.
 
 Example: `12D3KooWMKZFrp1BDKg9amtkv5zWnLhuUXN32nhqMvbtMdV2hz7j`
 
-Where the key comes from depends on the role:
+Where the key comes from depends on the node type:
 
-| Role | Key source | Consequence |
+| Type | Key source | Consequence |
 |---|---|---|
-| member | derived from **username + password + network** with Argon2id ([`security/kdf.go`](https://github.com/Warp-net/warpnet/blob/main/security/kdf.go)) | no key file; the key exists only in memory after login |
-| relay | derived from `--node.seed`; without it, from a string built from the network, database directory, IPv4 bind address and port ([`config/config.go`](https://github.com/Warp-net/warpnet/blob/main/config/config.go)) | stable peer ID across restarts |
+| member | derived from **login + password + network** with Argon2id ([`security/kdf.go`](https://github.com/Warp-net/warpnet/blob/main/security/kdf.go)) | no key file; the key exists only in memory after login |
+| relay | derived from `--node.seed`; without it, from the string `seed` + network name + `--database.dir` + IPv4 listen address + port ([`config/config.go`](https://github.com/Warp-net/warpnet/blob/main/config/config.go)) | stable peer ID across restarts |
 | moderator | random at every start ([`cmd/node/moderator/main.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/moderator/main.go)) | new peer ID after each restart |
 
 What this means for a member node:
 
-- The same username, password and network always give the same node ID, on any machine.
-- The password is the seed of the identity. Changing it produces a different key and therefore a different node.
-- The same credentials on testnet and on mainnet give two different node IDs, because the network name is part of the derivation.
-- The database is encrypted with a second key derived from the same username and password ([`database/local-store/db.go`](https://github.com/Warp-net/warpnet/blob/main/database/local-store/db.go)). A wrong password simply fails to open it.
+- Your login and password are your identity. The login is what you type in the "Login" field; it is not your profile name, which starts as "Anonymous" and is edited separately. The login is stored only inside your encrypted database and is never published.
+- The same login, password and network always give the same node ID, on any machine.
+- Changing either the login or the password produces a different key and therefore a different node, and the existing database no longer opens.
+- The same login and password on testnet and on mainnet give two different node IDs, because the network name is part of the derivation.
+- The database is encrypted with a second key derived from the same login and password ([`database/local-store/db.go`](https://github.com/Warp-net/warpnet/blob/main/database/local-store/db.go)). A wrong pair simply fails to open it.
 
-Your **user ID** is not the node ID. It is a ULID created at your first login and stored in your database ([`cmd/node/member/auth/auth.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/auth/auth.go)); other nodes map your user ID to your node ID. Your credentials alone recreate the node ID, but not the user ID, your posts or your follows: those live in the data directory. To move an account to another machine, move the data directory. See [Backup and restore](user-guide/backup-and-restore.md).
+Your **user ID** is not the node ID. It is a ULID created at your first login and stored in your database ([`cmd/node/member/auth/auth.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/auth/auth.go)); other nodes map your user ID to your node ID. Your login and password alone recreate the node ID, but not the user ID, your posts or your follows: those live in the data directory. To move an account to another machine, move the data directory. See [Backup and restore](user-guide/backup-and-restore.md).
 
 Every request between nodes travels in a signed envelope. The signature covers the body, the timestamp and the destination route; the receiver checks it against the key in the sender's peer ID and rejects remote messages whose timestamp is more than five minutes off ([`core/middleware`](https://github.com/Warp-net/warpnet/tree/main/core/middleware)). Details: [Security](security.md).
 
@@ -102,10 +119,10 @@ Every request between nodes travels in a signed envelope. The signature covers t
 
 Warpnet runs separate networks that cannot see each other:
 
-| Network | Name | Built-in relays |
+| Network | Name | Built-in bootstrap list |
 |---|---|---|
-| Mainnet | `warpnet` (`mainnet` is accepted as an alias) | three relays, ports 4001-4003 |
-| Testnet | `testnet` | three relays, ports 4011, 4022, 4033 |
+| Mainnet | `warpnet` (`mainnet` is accepted as an alias) | three relay nodes, ports 4001-4003 |
+| Testnet | `testnet` | three relay nodes, ports 4011, 4022, 4033 |
 | Your own | any other name | none: pass `--node.bootstrap` |
 
 A network is kept apart at several layers:
@@ -115,7 +132,7 @@ A network is kept apart at several layers:
 - **Data.** Each network has its own data directory, `~/.warpdata/<network>/` (on Windows `%LOCALAPPDATA%\warpdata\<network>\`).
 - **Identity.** The member key includes the network name, as described above.
 
-The desktop app starts on mainnet by default. If you did not choose a network and a testnet database already exists, it starts on testnet instead ([`cmd/node/member/main.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/main.go)). See [Getting started](user-guide/index.md) for choosing a network.
+The desktop app runs on mainnet unless `--node.network` or `NODE_NETWORK` names another network. On a first run the sign-up screen offers Warpnet or Testnet; picking one restarts the app on that network ([`cmd/node/member/app.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/app.go)). See [Getting started](user-guide/index.md).
 
 ## Core subsystems
 
@@ -123,9 +140,9 @@ A short map of the machinery. Each paragraph links to the page that covers it in
 
 **Wire protocol.** Every operation is a route such as `/private/post/tweet/0.0.0` or `/public/get/user/0.0.0`, carried over a libp2p stream as a signed JSON envelope. `private` routes act on the owner's own data and are served only to the node itself and its paired devices; `public` routes are what other peers may ask for. GossipSub topics carry broadcasts. See [Protocol](protocol.md) and the [route reference](developer-guide/api.md).
 
-**Discovery.** A node learns about peers from four sources: the DHT, gossip announcements, the peers that contact it over streams, and mDNS on the local network (member nodes only). For each new peer it fetches the node information and, for member nodes, the user profile. Relays and publicly reachable peers are preferred when the connection manager has to drop connections. See [Discovery](discovery.md).
+**Discovery.** A member node learns about peers from four sources: the DHT, gossip announcements, the peers that call it for node information, and mDNS on the local network. For each new peer it fetches the node information and, if the peer is a member, its user profile. When the connection manager has to trim connections, it keeps the bootstrap peers and publicly reachable, well-rated peers longest. See [Discovery](discovery.md).
 
-**Network and transport.** All roles and both mobile apps use one stack: TCP, a TLS layer that makes the connection look like ordinary HTTPS to deep packet inspection, the PSK, Noise XX encryption and yamux multiplexing. NAT traversal uses UPnP/NAT-PMP, AutoNAT v2, hole punching and, as a fallback, circuit relay v2 through relay nodes. See [Network](network.md).
+**Network and transport.** All node types and both mobile apps use one stack: TCP, a TLS layer that makes the connection look like ordinary HTTPS to deep packet inspection, the PSK, Noise XX encryption and yamux multiplexing. NAT traversal uses UPnP/NAT-PMP, AutoNAT v2, hole punching and, as a fallback, circuit relay v2 through the nodes of the bootstrap list. See [Network](network.md).
 
 **Synchronization.** There is no global state to agree on. The two things that converge across nodes are post statistics (views, reactions, replies, reposts, poll votes) and node ratings. Both are signed, Merkle-CRDT stores replicated over gossip. See [Synchronization](synchronization.md).
 
@@ -133,9 +150,9 @@ A short map of the machinery. Each paragraph links to the page that covers it in
 
 **Security.** Identity derivation, signed envelopes, freshness and replay checks, per-peer rate limits, the encrypted database and the encrypted browser channel. See [Security](security.md).
 
-**Moderation.** Users report public posts and profiles. Reports go to moderator nodes over gossip; a few of them judge each report with a local model and vote, and the signed verdict hides the content on the nodes that receive it. Each user also has local blocks, mutes and keyword filters. Direct messages are never moderated. See [Moderation](moderation.md).
+**Moderation.** Users report public posts, replies and profiles. Reports go to moderator nodes over gossip; moderators judge each report with a local model and vote, and the signed verdict hides the content on the nodes that receive it. Each user also has local blocks, mutes and keyword filters. Direct messages cannot be reported. See [Moderation](moderation.md).
 
-**Rating.** Nodes rate the peers they deal with from what they observe (bad signatures, flooding, failed dials and similar). Ratings are replicated and feed back into connection priority, the DHT, gossip scoring and rate limits. See [Rating](rating.md).
+**Rating.** Nodes rate the peers they deal with from what they observe (bad signatures, malformed or oversized messages, rate-limit hits, failed dials and similar). Ratings are replicated and feed back into connection priority, the DHT, gossip scoring, rate limits and whether media from a peer is accepted. See [Rating](rating.md).
 
 **Trust circle.** Each member node computes the set of users its owner trusts from the follow graph. It changes only how content is shown (for example, media from strangers is blurred), never whether it is carried. See [Trust circle](trust-circle.md).
 
@@ -171,7 +188,7 @@ sequenceDiagram
 What this means in practice:
 
 - The home timeline is local. A follower whose node was offline when the post went out does not get it pushed later; the gossip message is not stored for them.
-- Opening an author's profile asks the author's node for their posts and caches them locally, so missed posts still show up there while the author's node is online.
+- Opening an author's profile asks the author's node for their posts and caches them locally for 30 days, so missed posts still show up there while the author's node is online.
 - Deleting a post publishes a delete on the same topic, and followers' nodes remove it from their timelines.
 
 ## See also

@@ -20,9 +20,9 @@ Every node in Warpnet has a rating: a score from 0 to 1000 that its neighbours b
 | Score | Tier | What other nodes do |
 |---|---|---|
 | 800 to 1000 | trusted | Nothing special |
-| 500 to 799 | watched | Lower connection priority, half the usual request allowance, a slightly lower gossip score |
-| 200 to 499 | degraded | Low connection priority, a quarter of the request allowance |
-| 0 to 199 | floor | Lowest priority, a tenth of the allowance, removed from DHT routing tables, gossip messages ignored, images and videos stripped from posts it delivers |
+| 500 to 799 | watched | Lower connection priority, half the usual request allowance, a slightly negative gossip score |
+| 200 to 499 | degraded | Low connection priority, a quarter of the request allowance, a lower gossip score |
+| 0 to 199 | floor | Lowest priority, a tenth of the allowance, kept out of DHT routing, gossip messages ignored, images and videos stripped from posts it delivers |
 
 A node's tier is the lowest tier across the areas it is judged on (see [Dimensions](#dimensions)). A moderator that is clean on the wire but hands out malformed verdicts is not a "mostly fine" node.
 
@@ -32,11 +32,11 @@ Observations fall into three areas:
 
 | Area | Examples of what is observed |
 |---|---|
-| Network (every node) | Unsigned or wrongly signed requests, malformed or oversized messages, requests with a timestamp more than 5 minutes off, calling a private route without permission, hitting rate limits, connecting 4 times within a minute, flooding discovery, publishing forged rating records |
-| Application (member nodes) | A moderator quorum upheld a report against the node's content, sending a request that claims to act for another node, sustained rate-limit hits on write routes |
-| Moderation (moderator nodes) | Failing spot-checks by other moderators, not answering spot-checks, sending a verdict that names no content or user |
+| Network (every node) | Unsigned or wrongly signed requests, malformed or oversized messages, requests with a timestamp more than 5 minutes off, calling a private route without permission, hitting rate limits, 4 connections within a minute, appearing too often in peer discovery, publishing forged rating records |
+| Application | A moderator quorum upheld a report against the node's content, sending a request that claims to act for another node, sustained rate-limit hits on write routes |
+| Moderation | Failing spot-checks by other moderators, not answering spot-checks, sending a verdict that names no content or user |
 
-A failed dial is not charged at all. The "pressure" kinds are each capped per observer: reconnections at 200, rate-limit hits and discovery floods at 300. An unstable link alone therefore cannot drag a node below the watched tier.
+A failed dial is not charged at all. The "pressure" kinds are each capped per observer: reconnections at 200, rate-limit hits and discovery floods at 300. Reconnections alone therefore cost at most 200 and leave a node in the trusted tier.
 
 ## How it heals
 
@@ -64,7 +64,7 @@ The result: **reports from other nodes alone can never push a peer below 600**, 
 
 ## Your own rating
 
-In the desktop app, **Settings → Node rating** shows how the network sees your node: the overall score, one bar per area, and the offences recently observed with their counts. The node information panel shows the same score in short form, for example `1000/1000 trusted (0 observers)`.
+In the desktop app and the remote node's browser dashboard, **Settings → Node rating** shows how the network sees your node: the overall score, one bar per area, and the offences recently observed with their counts. The node information panel shows the same score in short form, for example `1000/1000 trusted (0 observers)`. The mobile apps do not show ratings.
 
 What you see there is the **public view**: for each area, the median score across the observers your node currently hears, as described below. It is built only from what other nodes wrote; your node holds no opinion of itself.
 
@@ -90,7 +90,7 @@ If your rating drops, the recent offences tell you what to look at:
 
 ## Dimensions
 
-The implementation is in [`core/rating`](https://github.com/Warp-net/warpnet/tree/main/core/rating). The original design is in [`docs/RATING.md`](https://github.com/Warp-net/warpnet/blob/main/docs/RATING.md); where the code differs, this page follows the code.
+The implementation is in [`core/rating`](https://github.com/Warp-net/warpnet/tree/main/core/rating).
 
 | Dimension | Wire name | Half-life | Retention | Witnessed by |
 |---|---|---|---|---|
@@ -112,23 +112,21 @@ From [`offence.go`](https://github.com/Warp-net/warpnet/blob/main/core/rating/of
 | `missing_signature` | net | 250 | none | Request carries no signature |
 | `private_route_denied` | net | 200 | none | Peer calls a private route it may not use |
 | `oversize_payload` | net | 150 | none | Request larger than the stream limit |
-| `malformed_frame` | net | 120 | none | Request envelope cannot be parsed |
+| `malformed_frame` | net | 120 | none | Request envelope cannot be parsed or has no message ID |
 | `stale_or_replayed` | net | 120 | none | Request timestamp outside a 5-minute window |
 | `forged_observation` | net | 400 | none | Peer authored a signed rating record that breaks the structural rules |
 | `rate_limit_hit` | net | 15 | 300 | Peer hits a route's rate limit |
 | `discovery_flood` | net | 25 | 300 | 32 discovery events about one peer within 10 minutes |
-| `connection_flap` | net | 10 | 200 | 4 connections from one peer within 1 minute |
+| `connection_flap` | net | 10 | 200 | 4 connections with one peer within 1 minute |
 | `moderation_upheld` | app | 300 | none | The moderator that carried a decided round charges the node named in the upheld report |
 | `foreign_authorship` | app | 350 | none | Peer sends a request in the name of a node other than itself (or than the node it is paired to) |
 | `write_flood` | app | 20 | 300 | 20 rate-limit hits on write routes within 5 minutes |
-| `false_report_burst` | app | 60 | 300 | Defined, not raised by any code today |
 | `audit_invalid` | mod | 500 | none | A moderator's spot-check standing worsens to banned |
-| `verdict_malformed` | mod | 200 | none | A verdict with a valid signature names no object or user |
-| `verdict_outlier` | mod | 60 | 400 | Defined, not raised by any code today |
+| `verdict_malformed` | mod | 200 | none | A verdict that passed the signature and vote checks names no object or user |
 | `audit_wrong` | mod | 60 | 400 | A moderator's spot-check standing worsens to suspect |
-| `audit_unreachable` | mod | 5 | 100 | A spot-check probe gets no answer |
+| `audit_unreachable` | mod | 5 | 100 | A spot-check gets no answer |
 
-Detection sites emit plain observations ([`core/warpnet/peer-event.go`](https://github.com/Warp-net/warpnet/blob/main/core/warpnet/peer-event.go)): the auth middleware, the rate limiter, the stream reader, discovery, connection events, the moderation handler and the moderator's audit ledger. The engine turns them into offences. A dial failure is observed but never charged. Emitters never block: if the engine falls behind, observations are dropped.
+Detection sites emit plain observations ([`core/warpnet/peer-event.go`](https://github.com/Warp-net/warpnet/blob/main/core/warpnet/peer-event.go)): the auth middleware, the rate limiter, the stream reader, discovery, connection events, the moderation handler, the moderator that carries a verdict and the moderator's spot-check ledger. The engine turns them into offences. A dial failure is observed but never charged. Emitters never block: if the engine falls behind, observations are dropped.
 
 ## Scoring
 
@@ -184,7 +182,7 @@ A node's observations are folded per peer, dimension and hour, signed, and writt
 
 - `bucket` is the Unix hour; `generation` is a 128-bit random value minted at every engine start.
 - The signature is the observer's Ed25519 signature over `peer|observer|dimension|bucket|generation|kind=count,...|updated_at(ms)`, with offences sorted by kind. It is verified against the key embedded in the observer's peer ID.
-- Kinds and dimensions travel by name, so renumbering a constant never changes what an old record means.
+- Kinds and dimensions travel by name, so renumbering a constant never changes what a record means.
 - Each `(peer, observer, dimension, bucket, generation)` has exactly one writer for its whole life. A restarted node gets a new generation and never overwrites the records it wrote before; readers add generations up.
 
 ### Authenticity
@@ -192,9 +190,8 @@ A node's observations are folded per peer, dimension and hour, signed, and writt
 | Case | What happens |
 |---|---|
 | Signature does not verify | Refused by the rating store before merge. Nobody is charged, because the named observer may be innocent |
-| Signed, but breaks a structural rule (rates itself, kind from another dimension, malformed generation, no offences) | Not used for scoring; the observer is charged `forged_observation` once, when the record arrives |
+| Signed, but breaks a structural rule (rates itself, kind from another dimension, malformed peer ID or generation, no offences) | Not used for scoring; the observer is charged `forged_observation` once, when the record arrives |
 | Signed, but its bucket is past retention or more than one hour in the future | Ignored; nobody is charged (a late replica or a bad clock) |
-| Kinds unknown to this build | Unknown kinds are skipped; a record with no known kind is ignored. A newer build may have added them, so nobody is charged |
 
 ### Replication and expiry
 
@@ -204,7 +201,7 @@ Records are replicated by the rating CRDT on gossip topic `/warpnet/rating/1.0.0
 /record/{peerID}/{observerID}/{dimension}/{bucket}/{generation}
 ```
 
-Records are kept in one DAG per dimension and UTC day (`net-20781`, for example). At most once an hour every node drops, locally, the whole days that fell out of each dimension's retention, its own records and other nodes' alike, and refuses those days from then on. No deletes travel over the network. See [Synchronization](synchronization.md) for the replication engine.
+Records are kept in one DAG per dimension and UTC day (`net-20781`, for example). About once an hour every node drops, locally, the whole days that fell out of each dimension's retention, its own records and other nodes' alike, and refuses those days from then on. No deletes travel over the network. See [Synchronization](synchronization.md) for the replication engine.
 
 | Node | Where its replica lives | After a restart |
 |---|---|---|
@@ -214,12 +211,12 @@ Records are kept in one DAG per dimension and UTC day (`net-20781`, for example)
 
 ### Index and caching
 
-Scoring runs on every inbound request, so it never queries the CRDT on the hot path:
+Enforcement points never read the CRDT: they read a tier table that the engine refreshes in the background.
 
 - Peers are loaded into an in-memory index one at a time, on first use, and kept current by the store's merge hooks.
 - The index holds at most 16,384 peers; the least recently used is evicted (from the index only, never from the store).
 - A computed score is reused for up to 5 minutes while the peer's records are unchanged.
-- Every 30 seconds the engine re-rates every peer it has records about and publishes the tier to a shared `PeersRatings` table (up to 4,096 entries, 24-hour expiry). A peer that is trusted, or that nobody has rated, holds no entry and reads as trusted.
+- Every 30 seconds the engine re-rates every indexed peer that has records and writes its tier to the shared `PeersRatings` table (up to 4,096 entries, 24-hour expiry). A peer that is trusted, or that nobody has rated, holds no entry and reads as trusted.
 - If a peer's records cannot be read, it scores 1000: an enforcement point must not act on evidence it has not seen.
 
 ## Enforcement
@@ -235,11 +232,11 @@ The modules that act on a rating read only the tier, through `PeersRatings` ([`r
 
 | Module | Uses | Effect |
 |---|---|---|
-| Connection manager ([`core/node/node.go`](https://github.com/Warp-net/warpnet/blob/main/core/node/node.go)) | Connection tag | A separate `rating` tag set when a peer connects; low-tagged peers are pruned first |
-| Gossipsub ([`core/pubsub/gossip.go`](https://github.com/Warp-net/warpnet/blob/main/core/pubsub/gossip.go)) | Gossip score | Application-specific peer score; graylist threshold -100, so only floor peers are graylisted |
+| Connection manager ([`core/node/node.go`](https://github.com/Warp-net/warpnet/blob/main/core/node/node.go)) | Connection tag | A separate `rating` tag set when a peer connects and refreshed for every connected peer every 30 seconds; low-tagged peers are pruned first |
+| Gossipsub ([`core/pubsub/gossip.go`](https://github.com/Warp-net/warpnet/blob/main/core/pubsub/gossip.go)) | Gossip score | Application-specific peer score. A negative score costs a peer its place in the gossip mesh; the graylist threshold is -100, so only floor peers are not read at all |
 | Stream rate limiter ([`core/ratelimit`](https://github.com/Warp-net/warpnet/tree/main/core/ratelimit)) | Rate multiplier | Burst and refill rate scaled; burst never drops below 1 |
-| DHT ([`core/dht/dht.go`](https://github.com/Warp-net/warpnet/blob/main/core/dht/dht.go)) | In DHT | Floor peers are kept out of the routing table and let back in when they recover |
-| Timeline and reply handlers | Media kept | Posts and replies delivered by a floor peer are stored without image and video keys |
+| DHT ([`core/dht/dht.go`](https://github.com/Warp-net/warpnet/blob/main/core/dht/dht.go)) | In DHT | Floor peers are kept out of the routing table and out of query results |
+| Timeline and reply handlers (member nodes) | Media kept | Posts and replies delivered by a floor peer are stored without image and video keys |
 
 Every knob is a weighting, not a refusal. Rating has no configuration and no off switch: a node cannot opt out of being rated, and a node that ignored what it observes would only be a free rider.
 
@@ -247,16 +244,9 @@ Every knob is a weighting, not a refusal. Rating has no configuration and no off
 
 | Route | Answers |
 |---|---|
-| `/private/get/admin/rating/0.0.0` | The public view of this node, built from records other nodes wrote. Used by the desktop app |
-| `/public/get/admin/rating/0.0.0` | This node's public view of the peer in `node_id` (or of itself when empty). Registered on member nodes |
+| `/private/get/admin/rating/0.0.0` | The public view of this node, built from records other nodes wrote. Used by the desktop app and the browser dashboard |
 
-Request for the public route:
-
-```json
-{"node_id": "12D3KooW..."}
-```
-
-Response (both routes):
+Response:
 
 ```json
 {
@@ -276,14 +266,14 @@ Response (both routes):
 }
 ```
 
-`recent` lists raw, undecayed counts within retention, busiest first. Handlers are in [`core/handler/rating.go`](https://github.com/Warp-net/warpnet/blob/main/core/handler/rating.go). The Android and iOS apps do not show ratings yet.
+`recent` lists raw, undecayed counts within retention, busiest first. The handler is in [`core/handler/rating.go`](https://github.com/Warp-net/warpnet/blob/main/core/handler/rating.go).
 
 ## Limits
 
 - **Identity is free.** A node at the floor can come back with a new key at 1000. The rating raises the cost of sustained abuse from one identity; it does not price identities.
 - **Remote evidence is advisory.** The caps that defeat slander also mean an offender is fully sanctioned only by the peers it actually misbehaved against.
 - **Observer weighting is circular.** A large honest-looking group can still shift the public view, which is why the public view never enforces.
-- **Moderation is noisy.** Moderators may run different models and disagree honestly; the moderation kinds have low weights or ceilings for that reason.
+- **Moderation is noisy.** Moderators may run different models and disagree honestly; spot-check offences other than invalid answers have low weights and ceilings for that reason.
 - **Recovery depends on peers.** Relays and moderators get their view back only from peers that still hold the records.
 - **Unsigned garbage is not attributable.** A record whose signature fails is dropped without charging anyone, so a flood of them costs bandwidth that the rating cannot price.
 
