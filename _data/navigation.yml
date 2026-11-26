@@ -1,4 +1,11 @@
 # url is the English page; the Russian twin lives under /ru with the same path.
+- title: Introduction
+  title_ru: Введение
+  items:
+    - title: Principles
+      title_ru: Принципы
+      url: /principles.html
+
 - title: Get started
   title_ru: Начало работы
   items:
