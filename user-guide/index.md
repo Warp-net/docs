@@ -34,7 +34,7 @@ Unpack the archive and run the file inside it. The Linux archive needs GTK 3 and
 |---|---|
 | Windows or Linux archive | The app checks the latest release on GitHub a minute after start and then every hour. When a newer version is out, it asks you: **Update now** replaces the app and restarts it, so you sign in again; **Later** skips that version until the app restarts. If the app cannot replace its own file (it sits in a folder only the system can write to), it only tells you about the new version and offers **Download**. |
 | Snap | Snap updates the app; the in-app updater is off. |
-| macOS | No in-app updates. Download each new version from [warpnet.site/download](https://warpnet.site/download). |
+| macOS | The app checks for releases the same way, but never replaces itself: when a newer version is out, it tells you and offers **Download**. Install the new version the same way as the first one. |
 
 Start the app with `--node.self-update=false` to turn the check off.
 

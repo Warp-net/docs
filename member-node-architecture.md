@@ -15,7 +15,7 @@ One package, [`cmd/node/member`](https://github.com/Warp-net/warpnet/tree/main/c
 
 | Flavour | Entry point | Build | User interface | Database | Self-update |
 |---|---|---|---|---|---|
-| **Desktop** | [`main.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/main.go) + [`app.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/app.go) | default (no `echo`, no `remote` tag), built with Wails; on Linux `-tags webkit2_41` | Wails window; the UI calls the node in-process | encrypted BadgerDB on disk | Linux and Windows; asks the owner first; off in the Snap package |
+| **Desktop** | [`main.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/main.go) + [`app.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/app.go) | default (no `echo`, no `remote` tag), built with Wails; on Linux `-tags webkit2_41` | Wails window; the UI calls the node in-process | encrypted BadgerDB on disk | Linux and Windows; asks the owner first; on macOS only reports a release; off in the Snap package |
 | **Remote** | [`remote-member.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/remote-member.go) | `go build -tags remote` | the same UI in a browser: HTTP at `/`, WebSocket at `/ws` | encrypted BadgerDB on disk | no |
 | **Echo** | [`echo-member.go`](https://github.com/Warp-net/warpnet/blob/main/cmd/node/member/echo-member.go) | `go build -tags echo`, `CGO_ENABLED=0` | none: a bot | in memory, fixed account | no |
 
@@ -190,7 +190,7 @@ Images and videos are stored on the author's node under a content key. Other nod
 
 The desktop node checks the latest GitHub release one minute after start and then every hour ([`core/selfupdate`](https://github.com/Warp-net/warpnet/tree/main/core/selfupdate)). For a newer version it checks that the release carries an archive for this platform, its checksum list and the signature of that list, then asks the owner in the UI; a declined version is not offered again while the app runs. After approval it verifies the checksum list against the Ed25519 release key built into the binary, downloads the archive next to its own binary, checks the archive's SHA-256, replaces the binary (the previous one stays beside it as `<binary>.old`) and restarts. If the restart fails, it puts the previous binary back and records the version in `<binary>.failed` so it is skipped from then on.
 
-Release assets exist for Linux (amd64, arm64) and Windows (amd64); macOS has none, so self-update stays off there. In the Snap package self-update is off. A binary in a directory the process cannot write to only reports that an update is available. A new major version changes the network key, so the updated node joins the peers on that major version.
+The node installs release assets on Linux (amd64, arm64) and Windows (amd64). The macOS release is a whole `warpnet.app` bundle that the node does not replace, so on macOS it only reports that an update is available. In the Snap package self-update is off. A binary in a directory the process cannot write to only reports that an update is available. A new major version changes the network key, so the updated node joins the peers on that major version.
 
 ### Wallet
 

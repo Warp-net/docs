@@ -136,7 +136,7 @@ There is no analytics, telemetry or metrics exporter in the code. Things your no
 | What | When | How to avoid it |
 |---|---|---|
 | Bootstrap nodes (by default three, run by the project) | At start, to join the network | Put your own nodes in **Settings → Network → Bootstrap peers** or `--node.bootstrap` |
-| The latest release on GitHub, with the app version as user agent | Every hour, desktop app on Linux and Windows outside Snap | `--node.self-update=false` |
+| The latest release on GitHub, with the app version as user agent | Every hour, desktop app outside Snap | `--node.self-update=false` |
 | The bridge gateway (a Warpnet node) | When your node looks up bridged accounts, for example in **Who to follow** or search | Set another gateway in **Settings → Bridge gateway** |
 | Your SMTP server | Only if you turn on e-mail notifications | Leave it off |
 | A TRON API endpoint | Only when the wallet or sponsored tweets are used | Do not use them |

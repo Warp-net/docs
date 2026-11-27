@@ -99,7 +99,7 @@ A node makes a few connections outside the Warpnet network:
 
 | Connection | When | Can be turned off |
 |---|---|---|
-| Release check: `codeberg.org` and `api.github.com` release APIs. When a newer release exists, its checksum list and signature, and after the update is approved, the archive, from the release's download links (GitHub) | Desktop member on Linux (amd64, arm64) and Windows (amd64), relay and moderator on Linux amd64: one minute after start, then hourly. Not on macOS, in the Snap package or in the remote (browser dashboard) flavour | `--node.self-update=false` |
+| Release check: `codeberg.org` and `api.github.com` release APIs. When a newer release exists, its checksum list and signature, and after the update is approved, the archive, from the release's download links (GitHub) | Desktop member on Linux (amd64, arm64), Windows (amd64) and macOS, relay and moderator on Linux amd64: one minute after start, then hourly. On macOS only the release itself is read, nothing is downloaded. Not in the Snap package or in the remote (browser dashboard) flavour | `--node.self-update=false` |
 | Blockchain API (TronGrid by default: `api.trongrid.io` on `warpnet`, `nile.trongrid.io` on `testnet`) | Only when wallet or sponsored-post features are used, by you or by a peer paying you; the local payment engine starts on first use | `--wallet.endpoint` or the wallet settings set another endpoint |
 | SMTP server | Only if you enable email notifications and configure a server | Notification settings |
 | `www.youtube-nocookie.com` (from the desktop UI or browser dashboard) | Only when you press play on a YouTube link in a post | Nothing loads before you press play |
